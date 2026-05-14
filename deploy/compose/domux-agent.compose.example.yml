@@ -1,0 +1,28 @@
+services:
+  domux-agent:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: domux-agent
+    image: localhost/domux-agent:local
+    restart: unless-stopped
+    command:
+      - -name
+      - edge-2
+      - -listen
+      - :8890
+      - -runtime
+      - docker
+      - -socket
+      - /var/run/docker.sock
+      - -tls-cert
+      - /etc/domux/certs/agent.pem
+      - -tls-key
+      - /etc/domux/certs/agent-key.pem
+      - -tls-ca
+      - /etc/domux/certs/ca.pem
+    ports:
+      - "8890:8890"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../certs:/etc/domux/certs:ro

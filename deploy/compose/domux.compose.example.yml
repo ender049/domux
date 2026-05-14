@@ -1,0 +1,31 @@
+services:
+  domux:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: domux
+    image: localhost/domux:local
+    restart: unless-stopped
+    command: ["-config", "/etc/domux/config.yaml"]
+    ports:
+      - "18080:18080"
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ../config/domux.config.yaml:/etc/domux/config.yaml
+      - domux-data:/var/lib/domux
+      - /var/run/docker.sock:/var/run/docker.sock
+    # For rootless Podman on the same host, switch to the Podman socket mount below,
+    # set runtimes[].runtime=podman and runtimes[].endpoint=unix:///run/podman/podman.sock,
+    # and keep host.containers.internal reachable from this container.
+    # extra_hosts:
+    #   - host.containers.internal:host-gateway
+    # volumes:
+    #   - ../config/domux.config.yaml:/etc/domux/config.yaml
+    #   - domux-data:/var/lib/domux
+    #   - /run/user/1000/podman/podman.sock:/run/podman/podman.sock
+    # Rootless Podman commonly needs extra host-side configuration before using host 80/443.
+    # Use high host ports like 8080/8443 by default.
+
+volumes:
+  domux-data:

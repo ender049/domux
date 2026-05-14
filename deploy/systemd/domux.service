@@ -1,0 +1,16 @@
+[Unit]
+Description=domux edge service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/domux
+ExecStart=/usr/local/bin/domux -config /etc/domux/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,110 @@
+server:
+  api_addr: ":18080"
+  http_addr: ":8080"
+  https_addr: ":8443"
+  # auth:
+  #   username: admin
+  #   password: change-me
+
+data_dir: ./data
+
+public_ip:
+  # Override public IP detection endpoints when needed.
+  # ipv4_urls:
+  #   - https://api.ipify.org
+  #   - https://ipv4.icanhazip.com
+  # ipv6_urls:
+  #   - https://api64.ipify.org
+  #   - https://ipv6.icanhazip.com
+  # timeout: 10s
+
+# The server uses this file as the single configuration source.
+# You can edit it directly and restart the service, or use the API/dashboard
+# for DNS providers, domains, local runtimes, remote nodes, certificate plans,
+# and deployment targets so those managed changes are written back here
+# and reloaded in process.
+
+ddns_providers:
+  - ref: cloudflare-home
+    type: cloudflare
+    options:
+      api_token: your-cloudflare-api-token
+  # - ref: alidns-home
+  #   type: alidns
+  #   options:
+  #     access_key_id: your-aliyun-access-key-id
+  #     access_key_secret: your-aliyun-access-key-secret
+  # - ref: godaddy-home
+  #   type: godaddy
+  #   options:
+  #     api_key: your-godaddy-api-key
+  #     api_secret: your-godaddy-api-secret
+  # - ref: spaceship-home
+  #   type: spaceship
+  #   options:
+  #     api_key: your-spaceship-api-key
+  #     api_secret: your-spaceship-api-secret
+
+apps:
+  - name: docs
+    icon: DOC
+    zone: home
+    subdomain: docs
+    # optional: proxy this custom app through a remote agent instead of the current server
+    # exit_node: edge-2
+    target_url: https://example.com
+
+runtimes:
+  - runtime: docker
+    endpoint: unix:///var/run/docker.sock
+    network: edge
+  # - runtime: podman
+  #   endpoint: unix:///run/user/1000/podman/podman.sock
+  #   # for rootless Podman, publish workload ports and let domux target
+  #   # the host-mapped port when direct container IP reachability is unavailable
+  #   network: edge
+
+agents:
+  - name: edge-2
+    addr: edge-2.internal:8890
+    runtime: docker
+    socket_path: /var/run/docker.sock
+
+deploy_targets:
+  - name: local-nginx
+    transport: local
+    cert_path: /etc/nginx/certs/home.example.com/fullchain.pem
+    key_path: /etc/nginx/certs/home.example.com/privkey.pem
+    reload_command: systemctl reload nginx
+  - name: remote-edge-2
+    transport: agent
+    agent:
+      node: edge-2
+    cert_path: /etc/caddy/certs/home.example.com/fullchain.pem
+    key_path: /etc/caddy/certs/home.example.com/privkey.pem
+    reload_command: systemctl reload caddy
+
+zones:
+  - name: home
+    domain: home.example.com
+    wildcard: true
+    ddns:
+      enabled: true
+      provider_refs: [cloudflare-home]
+      ipv4: true
+      ipv6: true
+      wildcard: true
+      ttl: 300
+    certificate:
+      enabled: true
+      email: admin@example.com
+      dns_provider: cloudflare-home
+      renew_before: 720h
+      deploy_targets: [local-nginx, remote-edge-2]
+      # bundles:
+      #   - name: wildcard
+      #     domains: [home.example.com, '*.home.example.com']
+      #     deploy_targets: [local-nginx]
+      #   - name: app-only
+      #     domains: [app.home.example.com]
+      #     deploy_targets: [remote-edge-2]

@@ -1,0 +1,16 @@
+[Unit]
+Description=domux agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/domux/domux-agent.env
+ExecStart=/bin/sh -ec '/usr/local/bin/domux-agent -name "$DOMUX_AGENT_NAME" -listen "$DOMUX_AGENT_LISTEN" -runtime "$DOMUX_AGENT_RUNTIME" -socket "$DOMUX_AGENT_SOCKET" -tls-cert "$DOMUX_AGENT_TLS_CERT" -tls-key "$DOMUX_AGENT_TLS_KEY" -tls-ca "$DOMUX_AGENT_TLS_CA"'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

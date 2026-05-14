@@ -1,0 +1,10 @@
+bin/
+dist/
+data/
+tmp/
+.playwright-mcp/
+domux
+domux-agent
+*.png
+cmd/domux/certs/
+.DS_Store

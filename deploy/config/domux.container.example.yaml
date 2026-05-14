@@ -1,0 +1,50 @@
+server:
+  api_addr: ":18080"
+  http_addr: ":8080"
+  https_addr: ":8443"
+  # auth:
+  #   username: admin
+  #   password: change-me
+
+data_dir: /var/lib/domux
+
+ddns_providers:
+  - ref: cloudflare-home
+    type: cloudflare
+    options:
+      api_token: your-cloudflare-api-token
+
+runtimes:
+  - runtime: docker
+    endpoint: unix:///var/run/docker.sock
+    network: edge
+  # For rootless Podman containerized deployment, mount the user socket into the
+  # domux container (for example /run/user/<uid>/podman/podman.sock:/run/podman/podman.sock)
+  # and change the runtime and endpoint to the in-container path below.
+  # Discovered published ports are then reached via host.containers.internal:<publishedPort>
+  # or another host alias reachable from the domux container.
+  # - runtime: podman
+  #   endpoint: unix:///run/podman/podman.sock
+  #   network: edge
+
+agents: []
+
+deploy_targets: []
+
+zones:
+  - name: home
+    domain: home.example.com
+    wildcard: true
+    ddns:
+      enabled: true
+      provider_refs: [cloudflare-home]
+      ipv4: true
+      ipv6: true
+      wildcard: true
+      ttl: 300
+    certificate:
+      enabled: true
+      email: admin@example.com
+      dns_provider: cloudflare-home
+      renew_before: 720h
+      deploy_targets: []

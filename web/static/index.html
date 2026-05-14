@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Domux</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="/logo.svg">
+    <link rel="stylesheet" href="/styles.css?v=compact-35">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <header class="app-topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#applications" data-nav-target="applications" aria-label="Domux 应用入口">
+          <span class="brand-mark" aria-hidden="true"><img src="/logo.svg" alt=""></span>
+          <span>
+            <strong>Domux</strong>
+          </span>
+        </a>
+
+        <div class="topbar-actions">
+          <button class="icon-action" type="button" data-nav-target="logs" aria-label="查看日志" title="日志">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10M7 8h10M7 12h6M6 20h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          </button>
+          <button id="refresh-all" class="icon-action" type="button" aria-label="刷新数据" title="刷新数据">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.7 5.6M4 12A8 8 0 0 1 17.7 6.4M18 3v4h-4M6 21v-4h4"/></svg>
+          </button>
+          <button id="theme-toggle" class="icon-action" type="button" aria-label="切换主题" title="切换主题">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="4"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <main id="main-content" class="app-shell">
+      <nav id="system-overview" class="summary-strip" role="tablist" aria-label="统计导航"></nav>
+
+      <section id="workspace-applications" class="workspace is-active" data-workspace="applications" aria-labelledby="applications-title">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Apps</p>
+            <h1 id="applications-title">应用</h1>
+          </div>
+          <div class="page-actions page-toolbar">
+            <div id="app-filters" class="filter-chips" role="tablist" aria-label="应用分类"></div>
+            <button class="button button-primary" type="button" data-open-dialog="custom-app">添加</button>
+          </div>
+        </div>
+        <div id="application-list" class="object-grid object-grid-apps"></div>
+      </section>
+
+      <section id="workspace-domains" class="workspace" data-workspace="domains" aria-labelledby="domains-title" hidden>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Domains</p>
+            <h1 id="domains-title">域名</h1>
+          </div>
+          <div class="page-actions">
+            <button class="button button-secondary" type="button" data-open-dialog="deploy-target">部署位置</button>
+            <button class="button button-secondary" type="button" data-open-dialog="provider">供应商</button>
+            <button class="button button-primary" type="button" data-open-dialog="zone">添加</button>
+          </div>
+        </div>
+        <div id="domain-list" class="object-grid"></div>
+      </section>
+
+      <section id="workspace-nodes" class="workspace" data-workspace="nodes" aria-labelledby="nodes-title" hidden>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Nodes</p>
+            <h1 id="nodes-title">节点</h1>
+          </div>
+          <div id="agent-install-panel" class="install-panel"></div>
+        </div>
+        <div id="node-list" class="object-grid"></div>
+      </section>
+
+      <section id="workspace-logs" class="workspace" data-workspace="logs" aria-labelledby="logs-title" hidden>
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">Logs</p>
+            <h1 id="logs-title">日志</h1>
+          </div>
+        </div>
+        <pre id="system-log" class="log-view">加载中</pre>
+      </section>
+    </main>
+
+    <dialog id="custom-app-dialog" class="modal-panel">
+      <form id="custom-app-form" method="dialog" class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">Application</p><h3 id="custom-app-dialog-title">添加应用</h3></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <input id="custom-app-mode" type="hidden" value="create">
+        <div class="form-grid">
+          <label><span>名称</span><input id="custom-app-name" type="text" autocomplete="organization" placeholder="docs" required></label>
+          <label><span>图标</span><input id="custom-app-icon" type="text" autocomplete="off" placeholder="DOC 或 https://..."></label>
+          <label><span>域名</span><select id="custom-app-zone" required></select></label>
+          <label><span>子域名</span><input id="custom-app-subdomain" type="text" autocomplete="off" placeholder="docs"></label>
+          <label><span>代理节点</span><select id="custom-app-exit-node"></select></label>
+          <label class="field-wide"><span>目标地址</span><input id="custom-app-target-url" type="url" autocomplete="url" placeholder="https://example.com" required></label>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="zone-dialog" class="modal-panel modal-wide">
+      <form id="zone-form" method="dialog" class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">Domain</p><h3 id="zone-dialog-title">添加域名</h3></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <input id="zone-mode" type="hidden" value="create">
+        <div class="form-grid">
+          <label class="field-wide"><span>域名</span><input id="zone-domain" type="text" placeholder="home.example.com" required></label>
+          <input id="zone-name" type="hidden">
+          <label class="check-field"><input id="zone-default" type="checkbox"><span>默认域名</span></label>
+          <label class="check-field"><input id="zone-wildcard" type="checkbox"><span>通配入口</span></label>
+          <label class="field-wide"><span>DNS 服务商</span><select id="zone-ddns-provider"></select></label>
+          <label class="check-field" data-provider-dependent><input id="zone-ddns-enabled" type="checkbox"><span>DDNS</span></label>
+          <label class="check-field" data-provider-dependent><input id="zone-ddns-ipv6" type="checkbox"><span>IPv6</span></label>
+          <div class="field-wide field-block">
+            <div class="field-heading"><span>部署位置</span><small id="zone-certificate-deploy-targets-summary">未选择</small></div>
+            <details class="multi-picker">
+              <summary>无</summary>
+              <div id="zone-certificate-deploy-targets" class="multi-picker-list"></div>
+            </details>
+          </div>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="provider-dialog" class="modal-panel modal-wide">
+      <div class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">DNS</p><h3 id="provider-dialog-title">DNS</h3><p class="form-help">列表管理，新建或编辑会弹出单独窗口。</p></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <div id="provider-manager-list" class="manager-list">
+          <div class="manager-list-head"><span>DNS 服务商列表</span></div>
+          <table class="manager-table">
+            <thead><tr><th>标识</th><th>类型</th><th>配置</th><th></th></tr></thead>
+            <tbody><tr><td colspan="4">加载中</td></tr></tbody>
+          </table>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>关闭</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="provider-edit-dialog" class="modal-panel modal-wide">
+      <form id="provider-form" method="dialog" class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">DNS</p><h3 id="provider-edit-title">新增 DNS 服务商</h3></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <input id="provider-mode" type="hidden" value="create">
+        <section class="form-section provider-editor">
+          <table class="manager-table provider-editor-table">
+            <tbody>
+              <tr>
+                <th scope="row">标识</th>
+                <td><input id="provider-ref" type="text" placeholder="cloudflare-home" required></td>
+              </tr>
+              <tr>
+                <th scope="row">类型</th>
+                <td><select id="provider-type" required></select></td>
+              </tr>
+              <tr>
+                <th scope="row">选项</th>
+                <td><textarea id="provider-options" rows="6" placeholder="每行一个 key=value&#10;字段名随 provider 而不同（如 api_token / access_key_id / api_key）"></textarea></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="agent-dialog" class="modal-panel modal-wide">
+      <form id="agent-form" method="dialog" class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">Node</p><h3 id="agent-dialog-title">编辑节点</h3></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <input id="agent-mode" type="hidden" value="create">
+        <input id="agent-kind" type="hidden" value="agent">
+        <input id="agent-runtime-original" type="hidden" value="">
+        <div class="form-grid">
+          <label><span>节点名称</span><input id="agent-display-name" type="text" placeholder="客厅节点"></label>
+          <input id="agent-name" type="hidden">
+          <label><span>连接地址</span><input id="agent-addr" type="text" placeholder="edge-2.internal:8890" required></label>
+          <label><span>容器类型</span><select id="agent-runtime"><option value="docker">Docker</option><option value="podman">Podman</option></select></label>
+          <label data-agent-field="socket"><span>Socket</span><input id="agent-socket-path" type="text" placeholder="/var/run/docker.sock"></label>
+          <label data-agent-field="network"><span>网络</span><select id="agent-network"></select></label>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>取消</button>
+          <button id="agent-save" class="button button-primary" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="deploy-target-dialog" class="modal-panel modal-wide">
+      <div class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">Deploy</p><h3 id="deploy-target-dialog-title">部署位置</h3><p class="form-help">列表管理，新建或编辑会弹出单独窗口。</p></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <div id="deploy-target-manager-list" class="manager-list">
+          <div class="manager-list-head"><span>部署位置列表</span></div>
+          <table class="manager-table">
+            <thead><tr><th>名称</th><th>方式</th><th>证书路径</th><th></th></tr></thead>
+            <tbody><tr><td colspan="4">加载中</td></tr></tbody>
+          </table>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>关闭</button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog id="deploy-target-edit-dialog" class="modal-panel modal-wide">
+      <form id="deploy-target-form" method="dialog" class="form-stack">
+        <header class="modal-header">
+          <div><p class="eyebrow">Deploy</p><h3 id="deploy-target-edit-title">新增部署位置</h3></div>
+          <button class="icon-action" value="cancel" type="button" data-close-dialog aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </header>
+        <input id="deploy-target-mode" type="hidden" value="create">
+        <div class="form-grid">
+          <label><span>名称</span><input id="deploy-target-name" type="text" placeholder="local-nginx" required></label>
+          <label><span>方式</span><select id="deploy-target-transport"><option value="local">本地</option><option value="agent">节点</option><option value="ssh">SSH</option></select></label>
+          <label data-transport-section="agent"><span>节点</span><select id="deploy-target-agent"><option value="">选择节点</option></select></label>
+          <label data-transport-section="ssh"><span>SSH 地址</span><input id="deploy-target-ssh-addr" type="text" placeholder="192.168.1.100:22"></label>
+          <label data-transport-section="ssh"><span>SSH 用户</span><input id="deploy-target-ssh-user" type="text" placeholder="root"></label>
+          <label class="field-wide" data-transport-section="ssh"><span>SSH 私钥</span><input id="deploy-target-ssh-key" type="text" placeholder="/home/user/.ssh/id_ed25519"></label>
+          <label class="field-wide"><span>证书路径</span><input id="deploy-target-cert-path" type="text" placeholder="/etc/nginx/certs/fullchain.pem" required></label>
+          <label class="field-wide"><span>私钥路径</span><input id="deploy-target-key-path" type="text" placeholder="/etc/nginx/certs/privkey.pem" required></label>
+          <label class="field-wide"><span>重载命令</span><input id="deploy-target-reload" type="text" placeholder="systemctl reload nginx"></label>
+        </div>
+        <footer class="modal-actions">
+          <button class="button button-secondary" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" type="submit">保存</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/app.js?v=compact-36" defer></script>
+  </body>
+</html>
