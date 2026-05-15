@@ -3,8 +3,8 @@ dist/
 data/
 tmp/
 .playwright-mcp/
-domux
-domux-agent
+/domux
+/domux-agent
 *.png
 cmd/domux/certs/
 .DS_Store
