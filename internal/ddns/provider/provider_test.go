@@ -52,11 +52,11 @@ func TestCloudflareUpsertCreatesRecord(t *testing.T) {
 	defer server.Close()
 
 	provider := cloudflareFactoryConfig("token", server.Client(), server.URL)
-	err := provider.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 120})
+	err := provider.Upsert(context.Background(), Record{Domain: "sub.example.com", Zone: "example.com", Name: "sub.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 120})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
-	if created.Name != "home.example.com" || created.Content != "1.2.3.4" || created.TTL != 120 || created.Type != "A" {
+	if created.Name != "sub.example.com" || created.Content != "1.2.3.4" || created.TTL != 120 || created.Type != "A" {
 		t.Fatalf("unexpected created payload: %+v", created)
 	}
 }
@@ -84,17 +84,17 @@ func TestAliDNSUpsertCreatesRecord(t *testing.T) {
 		endpoint:        server.URL,
 		httpClient:      server.Client(),
 	}
-	err := provider.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "*.home.example.com", Type: RecordTypeAAAA, Value: "2001::1", TTL: 600})
+	err := provider.Upsert(context.Background(), Record{Domain: "sub.example.com", Zone: "example.com", Name: "*.sub.example.com", Type: RecordTypeAAAA, Value: "2001::1", TTL: 600})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 	if len(actions) != 2 {
 		t.Fatalf("expected 2 requests, got %d", len(actions))
 	}
-	if actions[0].Get("SubDomain") != "*.home.example.com" {
+	if actions[0].Get("SubDomain") != "*.sub.example.com" {
 		t.Fatalf("unexpected describe subdomain: %s", actions[0].Get("SubDomain"))
 	}
-	if actions[1].Get("RR") != "*" || actions[1].Get("DomainName") != "home.example.com" || actions[1].Get("Type") != "AAAA" || actions[1].Get("Value") != "2001::1" {
+	if actions[1].Get("RR") != "*.sub" || actions[1].Get("DomainName") != "example.com" || actions[1].Get("Type") != "AAAA" || actions[1].Get("Value") != "2001::1" {
 		t.Fatalf("unexpected add record params: %v", actions[1])
 	}
 	if actions[1].Get("Signature") == "" {
@@ -133,11 +133,11 @@ func TestGoDaddyUpsertReplacesRecord(t *testing.T) {
 	goDaddy := provider.(*GoDaddy)
 	goDaddy.httpClient = server.Client()
 
-	err = goDaddy.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 300})
+	err = goDaddy.Upsert(context.Background(), Record{Domain: "sub.example.com", Zone: "example.com", Name: "sub.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 300})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
-	if requestPath != "/domains/home.example.com/records/A/@" {
+	if requestPath != "/domains/example.com/records/A/sub" {
 		t.Fatalf("unexpected request path: %s", requestPath)
 	}
 	if authHeader != "sso-key key:secret" {
@@ -146,7 +146,7 @@ func TestGoDaddyUpsertReplacesRecord(t *testing.T) {
 	if contentType != "application/json" {
 		t.Fatalf("unexpected content type: %q", contentType)
 	}
-	if len(payload) != 1 || payload[0].Name != "@" || payload[0].Type != "A" || payload[0].Data != "1.2.3.4" || payload[0].TTL != 600 {
+	if len(payload) != 1 || payload[0].Name != "sub" || payload[0].Type != "A" || payload[0].Data != "1.2.3.4" || payload[0].TTL != 600 {
 		t.Fatalf("unexpected godaddy payload: %+v", payload)
 	}
 }

@@ -11,8 +11,8 @@ func TestMemoryStoreRoundTripState(t *testing.T) {
 	t.Parallel()
 
 	store := NewMemoryStore()
-	if err := store.PutZone(core.ManagedZone{Name: "home", Domain: "home.example.com"}); err != nil {
-		t.Fatalf("PutZone() error = %v", err)
+	if err := store.PutDomain(core.ManagedZone{Name: "home.example.com", Domain: "home.example.com"}); err != nil {
+		t.Fatalf("PutDomain() error = %v", err)
 	}
 	if err := store.PutDDNSProvider(core.DDNSProviderConfig{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}); err != nil {
 		t.Fatalf("PutDDNSProvider() error = %v", err)
@@ -30,13 +30,13 @@ func TestMemoryStoreRoundTripState(t *testing.T) {
 	if err := store.ReplaceRoutes([]core.DiscoveredRoute{{ID: "r1", Host: "app.home.example.com"}}); err != nil {
 		t.Fatalf("ReplaceRoutes() error = %v", err)
 	}
-	if err := store.PutDDNSSyncState(core.DDNSSyncState{Zone: "home", Provider: "cloudflare-home", Host: "home.example.com", RecordType: "A", Value: "1.2.3.4", Status: "success", SyncedAt: time.Now()}); err != nil {
+	if err := store.PutDDNSSyncState(core.DDNSSyncState{Domain: "home.example.com", Zone: "home.example.com", Provider: "cloudflare-home", Host: "home.example.com", RecordType: "A", Value: "1.2.3.4", Status: "success", SyncedAt: time.Now()}); err != nil {
 		t.Fatalf("PutDDNSSyncState() error = %v", err)
 	}
 	if err := store.PutDeployTarget(core.DeployTarget{Name: "remote-edge-2", Transport: core.DeployTransportAgent, Agent: core.AgentDeployBinding{Node: "edge-2"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}); err != nil {
 		t.Fatalf("PutDeployTarget() error = %v", err)
 	}
-	if err := store.PutBundle(core.CertificateBundle{Name: "home", Zone: "home", Domains: []string{"home.example.com"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key", NotAfter: time.Now().Add(24 * time.Hour)}); err != nil {
+	if err := store.PutBundle(core.CertificateBundle{Name: "home", Domain: "home.example.com", Zone: "home.example.com", Domains: []string{"home.example.com"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key", NotAfter: time.Now().Add(24 * time.Hour)}); err != nil {
 		t.Fatalf("PutBundle() error = %v", err)
 	}
 	if err := store.AppendDeployRun(core.DeployRun{Target: "edge-2", Bundle: "home", Status: "success", Message: "ok", StartedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
@@ -46,7 +46,7 @@ func TestMemoryStoreRoundTripState(t *testing.T) {
 		t.Fatalf("AppendJobRun() error = %v", err)
 	}
 
-	if got := len(store.ListZones()); got != 1 {
+	if got := len(store.ListDomains()); got != 1 {
 		t.Fatalf("expected 1 zone, got %d", got)
 	}
 	if got := len(store.ListRuntimes()); got != 1 {
@@ -85,8 +85,8 @@ func TestMemoryStoreReplaceConfigCollectionsRemovesStaleEntries(t *testing.T) {
 	t.Parallel()
 
 	store := NewMemoryStore()
-	if err := store.ReplaceZones([]core.ManagedZone{{Name: "old", Domain: "old.example.com"}}); err != nil {
-		t.Fatalf("ReplaceZones(old) error = %v", err)
+	if err := store.ReplaceDomains([]core.ManagedZone{{Name: "old.example.com", Domain: "old.example.com"}}); err != nil {
+		t.Fatalf("ReplaceDomains(old) error = %v", err)
 	}
 	if err := store.ReplaceRuntimes([]core.RuntimeSource{{Runtime: core.ContainerRuntimePodman, Endpoint: "unix:///old.sock"}}); err != nil {
 		t.Fatalf("ReplaceRuntimes(old) error = %v", err)
@@ -101,8 +101,8 @@ func TestMemoryStoreReplaceConfigCollectionsRemovesStaleEntries(t *testing.T) {
 	if err := store.ReplaceDeployTargets([]core.DeployTarget{{Name: "old", Transport: core.DeployTransportLocal, CertPath: "/tmp/old-cert", KeyPath: "/tmp/old-key"}}); err != nil {
 		t.Fatalf("ReplaceDeployTargets(old) error = %v", err)
 	}
-	if err := store.ReplaceZones([]core.ManagedZone{{Name: "home", Domain: "home.example.com"}}); err != nil {
-		t.Fatalf("ReplaceZones(home) error = %v", err)
+	if err := store.ReplaceDomains([]core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}}); err != nil {
+		t.Fatalf("ReplaceDomains(home) error = %v", err)
 	}
 	if err := store.ReplaceRuntimes([]core.RuntimeSource{{Runtime: core.ContainerRuntimeDocker, Endpoint: "unix:///var/run/docker.sock"}}); err != nil {
 		t.Fatalf("ReplaceRuntimes(local) error = %v", err)
@@ -118,8 +118,8 @@ func TestMemoryStoreReplaceConfigCollectionsRemovesStaleEntries(t *testing.T) {
 		t.Fatalf("ReplaceDeployTargets(local-nginx) error = %v", err)
 	}
 
-	if got := store.ListZones(); len(got) != 1 || got[0].Name != "home" {
-		t.Fatalf("unexpected zones after replace: %+v", got)
+	if got := store.ListDomains(); len(got) != 1 || got[0].Name != "home.example.com" {
+		t.Fatalf("unexpected domains after replace: %+v", got)
 	}
 	if got := store.ListRuntimes(); len(got) != 1 || got[0].Runtime != core.ContainerRuntimeDocker {
 		t.Fatalf("unexpected runtime sources after replace: %+v", got)
@@ -150,21 +150,39 @@ func TestMemoryStoreDeleteDeployTarget(t *testing.T) {
 	}
 }
 
-func TestMemoryStoreDeleteZone(t *testing.T) {
+func TestMemoryStoreDeleteDomain(t *testing.T) {
 	t.Parallel()
 
 	store := NewMemoryStore()
-	if err := store.PutZone(core.ManagedZone{Name: "home", Domain: "home.example.com"}); err != nil {
-		t.Fatalf("PutZone() error = %v", err)
+	if err := store.PutDomain(core.ManagedZone{Name: "home.example.com", Domain: "home.example.com"}); err != nil {
+		t.Fatalf("PutDomain() error = %v", err)
 	}
-	if _, ok := store.GetZone("home"); !ok {
-		t.Fatal("expected zone to exist after PutZone")
+	if _, ok := store.GetDomain("home.example.com"); !ok {
+		t.Fatal("expected domain to exist after PutDomain")
 	}
-	if err := store.DeleteZone("home"); err != nil {
-		t.Fatalf("DeleteZone() error = %v", err)
+	if err := store.DeleteDomain("home.example.com"); err != nil {
+		t.Fatalf("DeleteDomain() error = %v", err)
 	}
-	if _, ok := store.GetZone("home"); ok {
-		t.Fatal("expected zone to be deleted")
+	if _, ok := store.GetDomain("home.example.com"); ok {
+		t.Fatal("expected domain to be deleted")
+	}
+}
+
+func TestMemoryStoreIndexesDomainsByDomainValue(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore()
+	if err := store.PutDomain(core.ManagedZone{Name: "Home", Domain: "home.example.com"}); err != nil {
+		t.Fatalf("PutDomain() error = %v", err)
+	}
+	if _, ok := store.GetDomain("home.example.com"); !ok {
+		t.Fatal("expected domain lookup by domain value to succeed")
+	}
+	if err := store.DeleteDomain("home.example.com"); err != nil {
+		t.Fatalf("DeleteDomain() error = %v", err)
+	}
+	if _, ok := store.GetDomain("home.example.com"); ok {
+		t.Fatal("expected domain to be deleted by domain value")
 	}
 }
 
@@ -172,7 +190,7 @@ func TestMemoryStoreDeleteBundle(t *testing.T) {
 	t.Parallel()
 
 	store := NewMemoryStore()
-	if err := store.PutBundle(core.CertificateBundle{Name: "home:wildcard", Zone: "home", Domains: []string{"home.example.com"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key", NotAfter: time.Now().Add(time.Hour)}); err != nil {
+	if err := store.PutBundle(core.CertificateBundle{Name: "home:wildcard", Domain: "home.example.com", Zone: "home.example.com", Domains: []string{"home.example.com"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key", NotAfter: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatalf("PutBundle() error = %v", err)
 	}
 	if _, ok := store.GetBundle("home:wildcard"); !ok {

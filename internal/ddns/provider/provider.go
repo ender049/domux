@@ -17,6 +17,7 @@ const (
 )
 
 type Record struct {
+	Domain string
 	Zone  string
 	Name  string
 	Type  RecordType

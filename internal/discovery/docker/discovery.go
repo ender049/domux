@@ -16,6 +16,7 @@ const (
 	DefaultLabelPrefix = "domux."
 	LocalNodeName      = "server"
 
+	labelDomainSuffix    = "domain"
 	labelZoneSuffix      = "zone"
 	labelSubdomainSuffix = "subdomain"
 	labelPortSuffix      = "port"
@@ -27,6 +28,7 @@ const (
 
 type RouteIntent struct {
 	Managed   bool
+	Domain    string
 	Zone      string
 	Subdomain string
 	Port      int
@@ -39,10 +41,17 @@ func ParseLabels(labels map[string]string, prefix string) (RouteIntent, error) {
 		return intent, nil
 	}
 	prefix = NormalizeLabelPrefix(prefix)
+	intent.Domain = strings.TrimSpace(labels[labelKey(prefix, labelDomainSuffix)])
 	intent.Zone = strings.TrimSpace(labels[labelKey(prefix, labelZoneSuffix)])
+	if intent.Domain != "" && intent.Zone != "" && intent.Domain != intent.Zone {
+		return RouteIntent{}, fmt.Errorf("conflicting %s and %s values", labelKey(prefix, labelDomainSuffix), labelKey(prefix, labelZoneSuffix))
+	}
+	if intent.Domain == "" {
+		intent.Domain = intent.Zone
+	}
 	intent.Subdomain = strings.TrimSpace(labels[labelKey(prefix, labelSubdomainSuffix)])
 	intent.Network = strings.TrimSpace(labels[labelKey(prefix, labelNetworkSuffix)])
-	intent.Managed = intent.Zone != "" || intent.Subdomain != "" || intent.Network != ""
+	intent.Managed = intent.Domain != "" || intent.Zone != "" || intent.Subdomain != "" || intent.Network != ""
 	if rawPort := strings.TrimSpace(labels[labelKey(prefix, labelPortSuffix)]); rawPort != "" {
 		port, err := strconv.Atoi(rawPort)
 		if err != nil {
@@ -62,6 +71,7 @@ func BuildRoute(zone core.ManagedZone, snapshot core.ContainerSnapshot, intent R
 	host := zone.Hostname(subdomain)
 	return core.DiscoveredRoute{
 		ID:        snapshot.ID + ":" + host,
+		Domain:    zone.Domain,
 		Zone:      zone.Name,
 		Subdomain: subdomain,
 		Host:      host,
@@ -96,9 +106,13 @@ func labelKey(prefix, suffix string) string {
 }
 
 func DiscoverRoutesFromSnapshots(source core.RuntimeSource, zones []core.ManagedZone, snapshots []core.ContainerSnapshot) ([]core.DiscoveredRoute, error) {
-	zoneByName := make(map[string]core.ManagedZone, len(zones))
+	zoneByDomain := make(map[string]core.ManagedZone, len(zones))
 	for _, zone := range zones {
-		zoneByName[zone.Name] = zone
+		domain := strings.TrimSpace(zone.Domain)
+		if domain == "" {
+			domain = strings.TrimSpace(zone.Name)
+		}
+		zoneByDomain[domain] = zone
 	}
 
 	var (
@@ -120,13 +134,13 @@ func DiscoverRoutesFromSnapshots(source core.RuntimeSource, zones []core.Managed
 			continue
 		}
 
-		zoneName := intent.Zone
-		if zoneName == "" {
-			zoneName = core.DefaultManagedZoneName(zones)
+		domainName := intent.Domain
+		if domainName == "" {
+			domainName = core.DefaultManagedZoneName(zones)
 		}
-		zone, ok := zoneByName[zoneName]
+		zone, ok := zoneByDomain[domainName]
 		if !ok {
-			errs = append(errs, fmt.Errorf("container %s: unknown zone %q", snapshot.Name, zoneName))
+			errs = append(errs, fmt.Errorf("container %s: unknown domain %q", snapshot.Name, domainName))
 			continue
 		}
 

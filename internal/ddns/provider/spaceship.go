@@ -25,10 +25,10 @@ type spaceshipRecordGroup struct {
 }
 
 type spaceshipRecord struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	TTL     int    `json:"ttl,omitempty"`
-	Address string `json:"address,omitempty"`
+	Type    string               `json:"type"`
+	Name    string               `json:"name"`
+	TTL     int                  `json:"ttl,omitempty"`
+	Address string               `json:"address,omitempty"`
 	Group   spaceshipRecordGroup `json:"group"`
 }
 
@@ -71,7 +71,11 @@ func (s *Spaceship) Name() string {
 }
 
 func (s *Spaceship) Upsert(ctx context.Context, record Record) error {
-	resolved, err := ResolveRecordName(record.Zone, record.Name)
+	zoneName := record.Zone
+	if zoneName == "" {
+		zoneName = record.Domain
+	}
+	resolved, err := ResolveRecordName(zoneName, record.Name)
 	if err != nil {
 		return err
 	}

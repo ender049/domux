@@ -75,7 +75,11 @@ func (c *Cloudflare) Name() string {
 }
 
 func (c *Cloudflare) Upsert(ctx context.Context, record Record) error {
-	zone, err := ResolveRecordName(record.Zone, record.Name)
+	zoneName := record.Zone
+	if zoneName == "" {
+		zoneName = record.Domain
+	}
+	zone, err := ResolveRecordName(zoneName, record.Name)
 	if err != nil {
 		return err
 	}

@@ -125,9 +125,8 @@ func TestStaticUIFetchesExistingAPIResources(t *testing.T) {
 	for _, endpoint := range []string{
 		"/api/v1/applications",
 		"/api/v1/apps",
-		"/api/v1/zones",
+		"/api/v1/domains",
 		"/api/v1/ddns-providers",
-		"/api/v1/runtimes",
 		"/api/v1/agents",
 		"/api/v1/ddns",
 		"/api/v1/deploy-targets",
@@ -137,6 +136,26 @@ func TestStaticUIFetchesExistingAPIResources(t *testing.T) {
 	} {
 		if !strings.Contains(body, endpoint) {
 			t.Fatalf("app.js should fetch %q", endpoint)
+		}
+	}
+}
+
+func TestStaticUIDomainWorkspaceUsesDomainsAsPrimaryState(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(staticFS, "app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	body := string(content)
+	for _, want := range []string{
+		"domains: []",
+		"const domains = domainState();",
+		"value: domains.length",
+		"list.innerHTML = domains.length",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("app.js should contain domain-state marker %q", want)
 		}
 	}
 }

@@ -28,7 +28,7 @@ func TestSpaceshipUpsertNoopWhenRecordAlreadyMatches(t *testing.T) {
 	defer server.Close()
 
 	provider := &Spaceship{apiKey: "key", apiSecret: "secret", apiBaseURL: server.URL + "/v1", httpClient: server.Client()}
-	if err := provider.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 300}); err != nil {
+	if err := provider.Upsert(context.Background(), Record{Domain: "home.example.com", Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "1.2.3.4", TTL: 300}); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 	if len(requests) != 1 {
@@ -70,7 +70,7 @@ func TestSpaceshipUpsertDeletesOldAndSavesNewRecord(t *testing.T) {
 	defer server.Close()
 
 	provider := &Spaceship{apiKey: "key", apiSecret: "secret", apiBaseURL: server.URL + "/v1", httpClient: server.Client()}
-	if err := provider.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "*.home.example.com", Type: RecordTypeAAAA, Value: "2001::2", TTL: 600}); err != nil {
+	if err := provider.Upsert(context.Background(), Record{Domain: "home.example.com", Zone: "home.example.com", Name: "*.home.example.com", Type: RecordTypeAAAA, Value: "2001::2", TTL: 600}); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 	if len(deletePayload) != 1 || deletePayload[0].Name != "*" || deletePayload[0].Type != "AAAA" || deletePayload[0].Address != "2001::1" {
@@ -114,7 +114,7 @@ func TestSpaceshipUpsertIgnoresNonCustomRecordsDuringReplace(t *testing.T) {
 	defer server.Close()
 
 	provider := &Spaceship{apiKey: "key", apiSecret: "secret", apiBaseURL: server.URL + "/v1", httpClient: server.Client()}
-	if err := provider.Upsert(context.Background(), Record{Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "5.6.7.8", TTL: 0}); err != nil {
+	if err := provider.Upsert(context.Background(), Record{Domain: "home.example.com", Zone: "home.example.com", Name: "home.example.com", Type: RecordTypeA, Value: "5.6.7.8", TTL: 0}); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 	if deleteCalled {

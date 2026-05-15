@@ -98,44 +98,59 @@ func (s *MemoryStore) Close() error {
 	return nil
 }
 
-func (s *MemoryStore) ReplaceZones(zones []core.ManagedZone) error {
+func (s *MemoryStore) ReplaceDomains(domains []core.ManagedZone) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.zones = keyedMap(zones, func(zone core.ManagedZone) string { return zone.Name })
+	s.zones = keyedMap(domains, func(domain core.ManagedZone) string {
+		if domain.Domain != "" {
+			return domain.Domain
+		}
+		return domain.Name
+	})
 	return nil
 }
 
-func (s *MemoryStore) PutZone(zone core.ManagedZone) error {
+func (s *MemoryStore) PutDomain(domain core.ManagedZone) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.zones[zone.Name] = zone
+	key := domain.Domain
+	if key == "" {
+		key = domain.Name
+	}
+	s.zones[key] = domain
 	return nil
 }
 
-func (s *MemoryStore) GetZone(name string) (core.ManagedZone, bool) {
+func (s *MemoryStore) GetDomain(name string) (core.ManagedZone, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	zone, ok := s.zones[name]
-	return zone, ok
+	domain, ok := s.zones[name]
+	return domain, ok
 }
 
-func (s *MemoryStore) DeleteZone(name string) error {
+func (s *MemoryStore) DeleteDomain(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.zones, name)
 	return nil
 }
 
-func (s *MemoryStore) ListZones() []core.ManagedZone {
+func (s *MemoryStore) ListDomains() []core.ManagedZone {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]core.ManagedZone, 0, len(s.zones))
-	for _, zone := range s.zones {
-		out = append(out, zone)
+	for _, domain := range s.zones {
+		out = append(out, domain)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
+
+func (s *MemoryStore) ReplaceZones(zones []core.ManagedZone) error { return s.ReplaceDomains(zones) }
+func (s *MemoryStore) PutZone(zone core.ManagedZone) error         { return s.PutDomain(zone) }
+func (s *MemoryStore) GetZone(name string) (core.ManagedZone, bool) { return s.GetDomain(name) }
+func (s *MemoryStore) DeleteZone(name string) error                { return s.DeleteDomain(name) }
+func (s *MemoryStore) ListZones() []core.ManagedZone               { return s.ListDomains() }
 
 func (s *MemoryStore) ReplaceDDNSProviders(providers []core.DDNSProviderConfig) error {
 	s.mu.Lock()
@@ -265,7 +280,13 @@ func (s *MemoryStore) ListRoutes() []core.DiscoveredRoute {
 func (s *MemoryStore) PutDDNSSyncState(state core.DDNSSyncState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ddns[ddnsStateKey(state.Zone, state.Provider, state.Host, state.RecordType)] = state
+	if state.Domain == "" {
+		state.Domain = state.Zone
+	}
+	if state.Zone == "" {
+		state.Zone = state.Domain
+	}
+	s.ddns[ddnsStateKey(state.Domain, state.Provider, state.Host, state.RecordType)] = state
 	return nil
 }
 
@@ -284,8 +305,16 @@ func (s *MemoryStore) ListDDNSSyncStates() []core.DDNSSyncState {
 		out = append(out, state)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Zone != out[j].Zone {
-			return out[i].Zone < out[j].Zone
+		left := out[i].Domain
+		if left == "" {
+			left = out[i].Zone
+		}
+		right := out[j].Domain
+		if right == "" {
+			right = out[j].Zone
+		}
+		if left != right {
+			return left < right
 		}
 		if out[i].Provider != out[j].Provider {
 			return out[i].Provider < out[j].Provider

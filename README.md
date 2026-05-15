@@ -58,7 +58,7 @@
 
 ### 1. 创建配置文件
 
-复制示例配置，并按你的 zone 和 DNS provider 进行修改：
+复制示例配置，并按你的 domain 和 DNS provider 进行修改：
 
 ```bash
 cp config.example.yaml config.yaml
@@ -67,21 +67,21 @@ cp config.example.yaml config.yaml
 通常至少需要修改：
 
 - `ddns_providers`
-- `zones`
-- `runtimes`
+- `domains`
+- `server.runtime`
 
-`data_dir` 是运行时目录，用于保存 ACME 账户、签发证书和其他本地状态。它不应作为仓库内容提交，默认也已被 `.gitignore` 忽略。
+`server.data_dir` 是运行时目录，用于保存 ACME 账户、签发证书和其他本地状态。它不应作为仓库内容提交，默认也已被 `.gitignore` 忽略。
 
 常见配置项：
 
 - `server`：API、HTTP、HTTPS 监听地址和可选 Basic Auth
-- `public_ip`：公网 IPv4/IPv6 探测端点
+- `server.public_ip`：公网 IPv4/IPv6 探测端点
 - `ddns_providers`：DNS provider 凭据定义
 - `apps`：手动添加的自定义应用
-- `runtimes`：本地 Docker / Podman 运行时
+- `server.runtime`：控制节点本地 Docker / Podman 运行时
 - `agents`：已审批的远程节点
 - `deploy_targets`：证书部署目标（`local` / `agent` / `ssh`）
-- `zones`：域名空间、DDNS 和证书配置
+- `domains`：域名空间、DDNS 和证书配置
 
 当前正式支持的 provider 只有 4 个，且同一份 provider options 会同时用于 DDNS 和 DNS-01：
 
@@ -123,7 +123,7 @@ services:
     ports:
       - "8081:80"
     labels:
-      domux.zone: "home"
+      domux.domain: "home.example.com"
       domux.subdomain: "whoami"
       domux.port: "80"
 ```

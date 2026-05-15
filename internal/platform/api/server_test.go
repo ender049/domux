@@ -20,7 +20,7 @@ import (
 
 type stubStore struct{}
 
-func (stubStore) ListZones() []core.ManagedZone                { return nil }
+func (stubStore) ListDomains() []core.ManagedZone              { return nil }
 func (stubStore) ListDDNSProviders() []core.DDNSProviderConfig { return nil }
 func (stubStore) ListCustomApps() []core.CustomApp             { return nil }
 func (stubStore) ListApplications() []core.Application         { return nil }
@@ -37,7 +37,7 @@ func (stubStore) ListJobRuns() []core.JobRun             { return nil }
 
 type deploymentStore struct{}
 
-func (deploymentStore) ListZones() []core.ManagedZone                { return nil }
+func (deploymentStore) ListDomains() []core.ManagedZone              { return nil }
 func (deploymentStore) ListDDNSProviders() []core.DDNSProviderConfig { return nil }
 func (deploymentStore) ListCustomApps() []core.CustomApp             { return nil }
 func (deploymentStore) ListApplications() []core.Application         { return nil }
@@ -58,7 +58,7 @@ func (deploymentStore) ListJobRuns() []core.JobRun { return nil }
 
 type ddnsStore struct{}
 
-func (ddnsStore) ListZones() []core.ManagedZone                { return nil }
+func (ddnsStore) ListDomains() []core.ManagedZone              { return nil }
 func (ddnsStore) ListDDNSProviders() []core.DDNSProviderConfig { return nil }
 func (ddnsStore) ListCustomApps() []core.CustomApp             { return nil }
 func (ddnsStore) ListApplications() []core.Application         { return nil }
@@ -75,7 +75,7 @@ func (ddnsStore) ListJobRuns() []core.JobRun             { return nil }
 
 type deployTargetStore struct{}
 
-func (deployTargetStore) ListZones() []core.ManagedZone                { return nil }
+func (deployTargetStore) ListDomains() []core.ManagedZone              { return nil }
 func (deployTargetStore) ListDDNSProviders() []core.DDNSProviderConfig { return nil }
 func (deployTargetStore) ListCustomApps() []core.CustomApp             { return nil }
 func (deployTargetStore) ListApplications() []core.Application         { return nil }
@@ -92,7 +92,7 @@ func (deployTargetStore) ListJobRuns() []core.JobRun            { return nil }
 
 type runtimeSourceStore struct{}
 
-func (runtimeSourceStore) ListZones() []core.ManagedZone                { return nil }
+func (runtimeSourceStore) ListDomains() []core.ManagedZone              { return nil }
 func (runtimeSourceStore) ListDDNSProviders() []core.DDNSProviderConfig { return nil }
 func (runtimeSourceStore) ListCustomApps() []core.CustomApp             { return nil }
 func (runtimeSourceStore) ListApplications() []core.Application         { return nil }
@@ -120,7 +120,7 @@ type mutableDeployTargetStore struct {
 	bundles       []core.CertificateBundle
 }
 
-func (s *mutableDeployTargetStore) ListZones() []core.ManagedZone {
+func (s *mutableDeployTargetStore) ListDomains() []core.ManagedZone {
 	return append([]core.ManagedZone(nil), s.zones...)
 }
 func (s *mutableDeployTargetStore) ListDDNSProviders() []core.DDNSProviderConfig {
@@ -249,17 +249,17 @@ func (s *mutableDeployTargetStore) DeleteDeployTarget(name string) error {
 	delete(s.targets, name)
 	return nil
 }
-func (s *mutableDeployTargetStore) GetZone(name string) (core.ManagedZone, bool) {
+func (s *mutableDeployTargetStore) GetDomain(name string) (core.ManagedZone, bool) {
 	for _, zone := range s.zones {
-		if zone.Name == name {
+		if zone.Domain == name || zone.Name == name {
 			return zone, true
 		}
 	}
 	return core.ManagedZone{}, false
 }
-func (s *mutableDeployTargetStore) PutZone(zone core.ManagedZone) error {
+func (s *mutableDeployTargetStore) PutDomain(zone core.ManagedZone) error {
 	for i, existing := range s.zones {
-		if existing.Name == zone.Name {
+		if existing.Domain == zone.Domain || existing.Name == zone.Name {
 			s.zones[i] = zone
 			return nil
 		}
@@ -267,16 +267,21 @@ func (s *mutableDeployTargetStore) PutZone(zone core.ManagedZone) error {
 	s.zones = append(s.zones, zone)
 	return nil
 }
-func (s *mutableDeployTargetStore) DeleteZone(name string) error {
+func (s *mutableDeployTargetStore) DeleteDomain(name string) error {
 	filtered := s.zones[:0]
 	for _, zone := range s.zones {
-		if zone.Name != name {
+		if zone.Domain != name && zone.Name != name {
 			filtered = append(filtered, zone)
 		}
 	}
 	s.zones = filtered
 	return nil
 }
+
+func (s *mutableDeployTargetStore) ListZones() []core.ManagedZone               { return s.ListDomains() }
+func (s *mutableDeployTargetStore) GetZone(name string) (core.ManagedZone, bool) { return s.GetDomain(name) }
+func (s *mutableDeployTargetStore) PutZone(zone core.ManagedZone) error         { return s.PutDomain(zone) }
+func (s *mutableDeployTargetStore) DeleteZone(name string) error                { return s.DeleteDomain(name) }
 
 func newConfigManagedServer(t *testing.T, cfg platformconfig.Config, store *mutableDeployTargetStore) (*Server, *platformconfig.Manager) {
 	t.Helper()
@@ -302,9 +307,9 @@ func syncStoreFromConfig(store *mutableDeployTargetStore, cfg platformconfig.Con
 	store.zones = append([]core.ManagedZone(nil), cfg.Zones...)
 	store.providers = append([]core.DDNSProviderConfig(nil), cfg.DDNSProviders...)
 	store.customApps = append([]core.CustomApp(nil), cfg.Apps...)
-	store.sources = make([]core.RuntimeSource, 0, len(cfg.Runtimes))
-	for _, source := range cfg.Runtimes {
-		store.sources = append(store.sources, source.Normalized())
+	store.sources = nil
+	if cfg.Server.Runtime.RuntimeOrDefault() != "" || cfg.Server.Runtime.Endpoint != "" {
+		store.sources = []core.RuntimeSource{cfg.Server.Runtime.Normalized()}
 	}
 	store.agents = append([]core.AgentNode(nil), cfg.Agents...)
 	store.targets = make(map[string]core.DeployTarget, len(cfg.DeployTargets))
@@ -361,17 +366,16 @@ func TestCreateCustomAppEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{targets: map[string]core.DeployTarget{}}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Agents: []core.AgentNode{{
 			Name:    "edge-2",
 			Addr:    "edge-2.internal:8890",
 			Runtime: core.ContainerRuntimeDocker,
 		}},
-		Zones: []core.ManagedZone{{Name: "home", Domain: "home.example.com"}},
+		Zones: []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}},
 	}, store)
 
-	body := strings.NewReader(`{"name":"docs","icon":"book","zone":"home","subdomain":"docs","exit_node":"edge-2","target_url":"https://example.com"}`)
+	body := strings.NewReader(`{"name":"docs","icon":"book","zone":"home.example.com","subdomain":"docs","exit_node":"edge-2","target_url":"https://example.com"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/apps", body)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -400,12 +404,11 @@ func TestUpdateCustomAppEndpointAllowsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		Zones:   []core.ManagedZone{{Name: "home", Domain: "home.example.com"}},
-		Apps:    []core.CustomApp{{Name: "docs", Zone: "home", Subdomain: "docs", TargetURL: "https://example.com"}},
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones:   []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}},
+		Apps:    []core.CustomApp{{Name: "docs", Zone: "home.example.com", Subdomain: "docs", TargetURL: "https://example.com"}},
 	}, store)
-	body := strings.NewReader(`{"name":"wiki","zone":"home","subdomain":"wiki","target_url":"https://example.org"}`)
+	body := strings.NewReader(`{"name":"wiki","zone":"home.example.com","subdomain":"wiki","target_url":"https://example.org"}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/apps/docs", body)
 	rr := httptest.NewRecorder()
 
@@ -431,11 +434,10 @@ func TestCreateCustomAppEndpointRejectsMissingSubdomain(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		Zones:   []core.ManagedZone{{Name: "home", Domain: "home.example.com"}},
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones:   []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}},
 	}, store)
-	body := strings.NewReader(`{"name":"docs","zone":"home","target_url":"https://example.org"}`)
+	body := strings.NewReader(`{"name":"docs","zone":"home.example.com","target_url":"https://example.org"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/apps", body)
 	rr := httptest.NewRecorder()
 
@@ -515,8 +517,7 @@ func TestCreateDDNSProviderEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 	}, store)
 	body := strings.NewReader(`{"ref":"cloudflare-home","type":"cloudflare","options":{"api_token":"token"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/ddns-providers", body)
@@ -544,8 +545,7 @@ func TestUpdateDDNSProviderEndpointRejectsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 	}, store)
 	body := strings.NewReader(`{"ref":"renamed","type":"cloudflare","options":{"api_token":"token"}}`)
@@ -564,8 +564,7 @@ func TestDeleteDDNSProviderEndpointRejectsReferencedProvider(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 		Zones: []core.ManagedZone{{
 			Name:   "home",
@@ -593,8 +592,7 @@ func TestDeleteDDNSProviderEndpointSuccess(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 	}, store)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/ddns-providers/cloudflare-home", nil)
@@ -657,95 +655,18 @@ func TestRuntimesEndpoint(t *testing.T) {
 	}
 }
 
-func TestRuntimesEndpointAliasesRuntimes(t *testing.T) {
-	t.Parallel()
-
-	server := New(runtimeSourceStore{}, Actions{})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/runtimes", nil)
-	rr := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	var sources []core.RuntimeSource
-	if err := json.Unmarshal(rr.Body.Bytes(), &sources); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(sources) != 1 || sources[0].Runtime != core.ContainerRuntimeDocker {
-		t.Fatalf("unexpected runtimes response: %+v", sources)
-	}
-}
-
-func TestCreateRuntimeSourceEndpoint(t *testing.T) {
-	t.Parallel()
-
-	store := &mutableDeployTargetStore{}
-	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-	}, store)
-	body := strings.NewReader(`{"display_name":"主节点","runtime":"docker","endpoint":"unix:///var/run/docker.sock","network":"edge"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtimes", body)
-	rr := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
-	}
-	if got := store.ListRuntimes(); len(got) != 1 || got[0].Runtime != core.ContainerRuntimeDocker || got[0].DisplayName != "主节点" {
-		t.Fatalf("expected runtime source in store, got %+v", got)
-	}
-	cfg, err := manager.Load()
-	if err != nil {
-		t.Fatalf("manager.Load() error = %v", err)
-	}
-	if len(cfg.Runtimes) != 1 || cfg.Runtimes[0].Runtime != core.ContainerRuntimeDocker || cfg.Runtimes[0].DisplayName != "主节点" {
-		t.Fatalf("expected runtime source in config, got %+v", cfg.Runtimes)
-	}
-}
-
-func TestCreatePodmanRuntimeSourceEndpointWithoutExplicitEndpoint(t *testing.T) {
+func TestUpdateServerRuntimeEndpoint(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "/tmp/jd-podman")
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server: platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data", Runtime: core.RuntimeSource{
+			Runtime:  core.ContainerRuntimeDocker,
+			Endpoint: "unix:///var/run/docker.sock",
+		}},
 	}, store)
 	body := strings.NewReader(`{"runtime":"podman","network":"edge"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtimes", body)
-	rr := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
-	}
-	if got := store.ListRuntimes(); len(got) != 1 || got[0].Runtime != core.ContainerRuntimePodman || got[0].Endpoint != "unix:///tmp/jd-podman/podman/podman.sock" {
-		t.Fatalf("expected normalized podman source in store, got %+v", got)
-	}
-	cfg, err := manager.Load()
-	if err != nil {
-		t.Fatalf("manager.Load() error = %v", err)
-	}
-	if len(cfg.Runtimes) != 1 || cfg.Runtimes[0].Runtime != core.ContainerRuntimePodman {
-		t.Fatalf("expected podman runtime in config, got %+v", cfg.Runtimes)
-	}
-}
-
-func TestUpdateRuntimeSourceAllowsRuntimeChange(t *testing.T) {
-	t.Parallel()
-
-	store := &mutableDeployTargetStore{}
-	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:   platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:  "./data",
-		Runtimes: []core.RuntimeSource{{Runtime: core.ContainerRuntimeDocker, Endpoint: "unix:///var/run/docker.sock"}},
-	}, store)
-	body := strings.NewReader(`{"runtime":"podman","endpoint":"unix:///var/run/docker.sock"}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/runtimes/docker", body)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/server/runtime", body)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -754,36 +675,14 @@ func TestUpdateRuntimeSourceAllowsRuntimeChange(t *testing.T) {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
 	if got := store.ListRuntimes(); len(got) != 1 || got[0].Runtime != core.ContainerRuntimePodman {
-		t.Fatalf("expected runtime to change, got %+v", got)
-	}
-}
-
-func TestDeleteRuntimeSourceEndpointSuccess(t *testing.T) {
-	t.Parallel()
-
-	store := &mutableDeployTargetStore{}
-	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:   platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:  "./data",
-		Runtimes: []core.RuntimeSource{{Runtime: core.ContainerRuntimeDocker, Endpoint: "unix:///var/run/docker.sock"}},
-	}, store)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/runtimes/docker", nil)
-	rr := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
-	}
-	if got := store.ListRuntimes(); len(got) != 0 {
-		t.Fatalf("expected runtime source removed from store, got %+v", got)
+		t.Fatalf("expected updated runtime in store, got %+v", got)
 	}
 	cfg, err := manager.Load()
 	if err != nil {
 		t.Fatalf("manager.Load() error = %v", err)
 	}
-	if len(cfg.Runtimes) != 0 {
-		t.Fatalf("expected runtime source removed from config, got %+v", cfg.Runtimes)
+	if cfg.Server.Runtime.Runtime != core.ContainerRuntimePodman {
+		t.Fatalf("expected updated server runtime in config, got %+v", cfg.Server.Runtime)
 	}
 }
 
@@ -792,8 +691,7 @@ func TestCreateAgentEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 	}, store)
 	body := strings.NewReader(`{"name":"edge-2","display_name":"客厅节点","addr":"edge-2.internal:8890","runtime":"docker","socket_path":"/var/run/docker.sock"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", body)
@@ -821,8 +719,7 @@ func TestRegisterAndApprovePendingAgent(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 	}, store)
 	body := strings.NewReader(`{"name":"edge-2","addr":"edge-2.internal:8890","runtime":"podman","socket_path":"/run/podman/podman.sock","version":"0.1.0"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/register", body)
@@ -921,8 +818,7 @@ func TestUpdateAgentEndpointRejectsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Agents: []core.AgentNode{{
 			Name:    "edge-2",
 			Addr:    "edge-2.internal:8890",
@@ -945,8 +841,7 @@ func TestDeleteAgentEndpointRejectsReferencedAgent(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Agents: []core.AgentNode{{
 			Name:    "edge-2",
 			Addr:    "edge-2.internal:8890",
@@ -969,8 +864,7 @@ func TestDeleteAgentEndpointSuccess(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Agents: []core.AgentNode{{
 			Name:    "edge-2",
 			Addr:    "edge-2.internal:8890",
@@ -997,21 +891,21 @@ func TestDeleteAgentEndpointSuccess(t *testing.T) {
 	}
 }
 
-func TestActionEndpointPassesZoneScope(t *testing.T) {
+func TestActionEndpointPassesDomainScope(t *testing.T) {
 	t.Parallel()
 
 	called := false
 	server := New(stubStore{}, Actions{
 		SyncDDNS: func(ctx context.Context, req ActionRequest) error {
 			called = true
-			if req.Zone != "home" {
-				t.Fatalf("expected zone home, got %q", req.Zone)
+			if req.Domain != "home.example.com" {
+				t.Fatalf("expected domain home.example.com, got %q", req.Domain)
 			}
 			return nil
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/actions/ddns/sync?zone=home", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/actions/ddns/sync?domain=home.example.com", nil)
 	rr := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rr, req)
 
@@ -1019,7 +913,7 @@ func TestActionEndpointPassesZoneScope(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	if !called {
-		t.Fatal("expected zone-scoped action to be called")
+		t.Fatal("expected domain-scoped action to be called")
 	}
 }
 
@@ -1082,11 +976,11 @@ func TestActionEndpointReturnsBadRequest(t *testing.T) {
 		RenewCertificates: func(ctx context.Context, req ActionRequest) error {
 			_ = ctx
 			_ = req
-			return BadRequest(errors.New("zone not found"))
+			return BadRequest(errors.New("domain not found"))
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/actions/certificates/renew?zone=missing", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/actions/certificates/renew?domain=missing.example.com", nil)
 	rr := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rr, req)
 
@@ -1120,13 +1014,12 @@ func TestCreateZoneEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 		DeployTargets: []core.DeployTarget{{Name: "local-nginx", Transport: core.DeployTransportLocal, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 	}, store)
-	body := strings.NewReader(`{"name":"home","domain":"home.example.com","wildcard":true,"ddns":{"enabled":true,"provider_refs":["cloudflare-home"],"ipv4":true,"ttl":300},"certificate":{"enabled":true,"email":"admin@example.com","dns_provider":"cloudflare-home","renew_before":2592000000000000,"deploy_targets":["local-nginx"]}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/zones", body)
+	body := strings.NewReader(`{"domain":"home.example.com","wildcard":true,"ddns":{"enabled":true,"provider_refs":["cloudflare-home"],"ipv4":true,"ttl":300},"certificate":{"enabled":true,"email":"admin@example.com","dns_provider":"cloudflare-home","renew_before":2592000000000000,"deploy_targets":["local-nginx"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", body)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1134,15 +1027,68 @@ func TestCreateZoneEndpoint(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
 	}
-	if got := store.ListZones(); len(got) != 1 || got[0].Name != "home" {
-		t.Fatalf("expected reloaded zone in store, got %+v", got)
+	if got := store.ListDomains(); len(got) != 1 || got[0].Name != "home.example.com" {
+		t.Fatalf("expected reloaded domain in store, got %+v", got)
 	}
 	cfg, err := manager.Load()
 	if err != nil {
 		t.Fatalf("manager.Load() error = %v", err)
 	}
-	if len(cfg.Zones) != 1 || cfg.Zones[0].Name != "home" {
-		t.Fatalf("expected saved zone in config file, got %+v", cfg.Zones)
+	if len(cfg.Zones) != 1 || cfg.Zones[0].Name != "home.example.com" {
+		t.Fatalf("expected saved domain in config file, got %+v", cfg.Zones)
+	}
+}
+
+func TestCreateZoneEndpointPreservesDisplayName(t *testing.T) {
+	t.Parallel()
+
+	store := &mutableDeployTargetStore{}
+	server, manager := newConfigManagedServer(t, platformconfig.Config{
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+	}, store)
+	body := strings.NewReader(`{"name":"Home","domain":"home.example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", body)
+	rr := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := store.ListDomains(); len(got) != 1 || got[0].Name != "Home" || got[0].Domain != "home.example.com" {
+		t.Fatalf("expected reloaded domain in store, got %+v", got)
+	}
+	cfg, err := manager.Load()
+	if err != nil {
+		t.Fatalf("manager.Load() error = %v", err)
+	}
+	if len(cfg.Zones) != 1 || cfg.Zones[0].Name != "Home" || cfg.Zones[0].Domain != "home.example.com" {
+		t.Fatalf("expected saved domain in config file, got %+v", cfg.Zones)
+	}
+}
+
+func TestCreateCustomAppAcceptsDomainReferenceWhenZoneNameDiffers(t *testing.T) {
+	t.Parallel()
+
+	store := &mutableDeployTargetStore{}
+	server, _ := newConfigManagedServer(t, platformconfig.Config{
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones: []core.ManagedZone{{
+			Name:   "Home",
+			Domain: "home.example.com",
+		}},
+	}, store)
+	body := strings.NewReader(`{"name":"docs","domain":"home.example.com","subdomain":"docs","target_url":"https://example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/apps", body)
+	rr := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if len(store.customApps) != 1 || store.customApps[0].Domain != "home.example.com" {
+		t.Fatalf("expected stored custom app to keep domain semantics, got %+v", store.customApps)
 	}
 }
 
@@ -1151,15 +1097,14 @@ func TestUpdateZoneEndpointRejectsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 		}},
 	}, store)
 	body := strings.NewReader(`{"name":"renamed","domain":"home.example.com"}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/zones/home", body)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/domains/home.example.com", body)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1174,11 +1119,10 @@ func TestDeleteZoneEndpointSuccess(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		Zones:   []core.ManagedZone{{Name: "home", Domain: "home.example.com"}},
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones:   []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}},
 	}, store)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/zones/home", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/home.example.com", nil)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1186,15 +1130,15 @@ func TestDeleteZoneEndpointSuccess(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
 	}
-	if got := store.ListZones(); len(got) != 0 {
-		t.Fatalf("expected zone to be removed from store, got %+v", got)
+	if got := store.ListDomains(); len(got) != 0 {
+		t.Fatalf("expected domain to be removed from store, got %+v", got)
 	}
 	cfg, err := manager.Load()
 	if err != nil {
 		t.Fatalf("manager.Load() error = %v", err)
 	}
 	if len(cfg.Zones) != 0 {
-		t.Fatalf("expected zone to be removed from config, got %+v", cfg.Zones)
+		t.Fatalf("expected domain to be removed from config, got %+v", cfg.Zones)
 	}
 }
 
@@ -1203,12 +1147,11 @@ func TestCreateZoneBundleEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 		DeployTargets: []core.DeployTarget{{Name: "local-nginx", Transport: core.DeployTransportLocal, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			Certificate: core.CertificatePolicy{
 				Enabled:     true,
@@ -1218,7 +1161,7 @@ func TestCreateZoneBundleEndpoint(t *testing.T) {
 		}},
 	}, store)
 	body := strings.NewReader(`{"name":"wildcard","domains":["home.example.com","*.home.example.com"],"deploy_targets":["local-nginx"]}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/zones/home/bundles", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains/home.example.com/bundles", body)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1233,7 +1176,7 @@ func TestCreateZoneBundleEndpoint(t *testing.T) {
 	if len(cfg.Zones) != 1 || len(cfg.Zones[0].Certificate.Bundles) != 1 || cfg.Zones[0].Certificate.Bundles[0].Name != "wildcard" {
 		t.Fatalf("expected bundle to be saved in config, got %+v", cfg.Zones)
 	}
-	zone, _ := store.GetZone("home")
+	zone, _ := store.GetDomain("home.example.com")
 	if len(zone.Certificate.Bundles) != 1 || zone.Certificate.Bundles[0].Name != "wildcard" {
 		t.Fatalf("expected bundle to be reloaded into store, got %+v", zone.Certificate.Bundles)
 	}
@@ -1244,11 +1187,10 @@ func TestUpdateZoneBundleEndpointRejectsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			Certificate: core.CertificatePolicy{
 				Enabled:     true,
@@ -1262,7 +1204,7 @@ func TestUpdateZoneBundleEndpointRejectsRename(t *testing.T) {
 		}},
 	}, store)
 	body := strings.NewReader(`{"name":"renamed","domains":["home.example.com"]}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/zones/home/bundles/wildcard", body)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/domains/home.example.com/bundles/wildcard", body)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1277,11 +1219,10 @@ func TestDeleteZoneBundleEndpointSuccess(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{Ref: "cloudflare-home", Type: "cloudflare", Options: map[string]string{"api_token": "token"}}},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			Certificate: core.CertificatePolicy{
 				Enabled:     true,
@@ -1294,7 +1235,7 @@ func TestDeleteZoneBundleEndpointSuccess(t *testing.T) {
 			},
 		}},
 	}, store)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/zones/home/bundles/wildcard", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/home.example.com/bundles/wildcard", nil)
 	rr := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rr, req)
@@ -1316,8 +1257,7 @@ func TestCreateDeployTargetEndpoint(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Agents: []core.AgentNode{{
 			Name:    "edge-2",
 			Addr:    "edge-2.internal:8890",
@@ -1350,8 +1290,7 @@ func TestCreateSSHDeployTargetSplitsHostPort(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:  platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 	}, store)
 	body := strings.NewReader(`{"name":"remote-ssh","transport":"ssh","ssh":{"addr":"192.168.1.100:2222","user":"root"},"cert_path":"/tmp/fullchain.pem","key_path":"/tmp/privkey.pem"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/deploy-targets", body)
@@ -1380,8 +1319,7 @@ func TestUpdateDeployTargetEndpointRejectsRename(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DeployTargets: []core.DeployTarget{{Name: "local-nginx", Transport: core.DeployTransportLocal, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 	}, store)
 	body := strings.NewReader(`{"name":"renamed-target","transport":"local","cert_path":"/tmp/cert","key_path":"/tmp/key"}`)
@@ -1400,8 +1338,7 @@ func TestDeleteDeployTargetEndpointRejectsBoundTarget(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, _ := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DeployTargets: []core.DeployTarget{{Name: "local-nginx", Transport: core.DeployTransportLocal, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 		Zones: []core.ManagedZone{{
 			Name:   "home",
@@ -1430,8 +1367,7 @@ func TestDeleteDeployTargetEndpointSuccess(t *testing.T) {
 
 	store := &mutableDeployTargetStore{}
 	server, manager := newConfigManagedServer(t, platformconfig.Config{
-		Server:        platformconfig.ServerConfig{APIAddr: ":18080"},
-		DataDir:       "./data",
+		Server:        platformconfig.ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DeployTargets: []core.DeployTarget{{Name: "local-nginx", Transport: core.DeployTransportLocal, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 	}, store)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/deploy-targets/local-nginx", nil)
@@ -1472,7 +1408,7 @@ func TestCertificatesEndpointUsesCurrentPolicyTargets(t *testing.T) {
 				}},
 			},
 		}},
-		bundles: []core.CertificateBundle{{Name: "home:wildcard", Zone: "home", Domains: []string{"home.example.com", "*.home.example.com"}, DeployTargets: []string{"stale-target"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
+		bundles: []core.CertificateBundle{{Name: "home:wildcard", Domain: "home.example.com", Zone: "home.example.com", Domains: []string{"home.example.com", "*.home.example.com"}, DeployTargets: []string{"stale-target"}, CertPath: "/tmp/cert", KeyPath: "/tmp/key"}},
 	}
 	server := New(store, Actions{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil)

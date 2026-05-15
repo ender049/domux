@@ -56,7 +56,11 @@ func (g *GoDaddy) Name() string {
 }
 
 func (g *GoDaddy) Upsert(ctx context.Context, record Record) error {
-	resolved, err := ResolveRecordName(record.Zone, record.Name)
+	zoneName := record.Zone
+	if zoneName == "" {
+		zoneName = record.Domain
+	}
+	resolved, err := ResolveRecordName(zoneName, record.Name)
 	if err != nil {
 		return err
 	}

@@ -8,12 +8,14 @@ import (
 	"domux/internal/core"
 	"domux/internal/ddns/ipdetect"
 	"domux/internal/ddns/provider"
+	"domux/internal/dns/authzone"
 )
 
 type Service struct {
 	Detector   ipdetect.Detector
 	Providers  map[string]ddnsprovider.Updater
 	StateStore StateStore
+	AuthZones  authzone.Resolver
 }
 
 type StateStore interface {
@@ -21,8 +23,15 @@ type StateStore interface {
 	PutDDNSSyncState(core.DDNSSyncState) error
 }
 
+func stateDomain(zone core.ManagedZone) string {
+	if zone.Domain != "" {
+		return zone.Domain
+	}
+	return zone.Name
+}
+
 func New(detector ipdetect.Detector) *Service {
-	return &Service{Detector: detector, Providers: make(map[string]ddnsprovider.Updater)}
+	return &Service{Detector: detector, Providers: make(map[string]ddnsprovider.Updater), AuthZones: authzone.NewNSResolver()}
 }
 
 func (s *Service) Register(ref string, updater ddnsprovider.Updater) {
@@ -61,13 +70,17 @@ func (s *Service) SyncZone(ctx context.Context, zone core.ManagedZone) ([]core.D
 		}
 		if zone.DDNS.IPv4 && snap.IPv4 != "" {
 			state, err := s.syncRecord(ctx, providerRef, updater, zone, zone.Domain, ddnsprovider.RecordTypeA, snap.IPv4)
-			states = append(states, state)
+			if state.Host != "" {
+				states = append(states, state)
+			}
 			if err != nil {
 				errs = append(errs, err)
 			}
 			if zone.DDNS.Wildcard {
 				state, err := s.syncRecord(ctx, providerRef, updater, zone, "*."+zone.Domain, ddnsprovider.RecordTypeA, snap.IPv4)
-				states = append(states, state)
+				if state.Host != "" {
+					states = append(states, state)
+				}
 				if err != nil {
 					errs = append(errs, err)
 				}
@@ -75,13 +88,17 @@ func (s *Service) SyncZone(ctx context.Context, zone core.ManagedZone) ([]core.D
 		}
 		if zone.DDNS.IPv6 && snap.IPv6 != "" {
 			state, err := s.syncRecord(ctx, providerRef, updater, zone, zone.Domain, ddnsprovider.RecordTypeAAAA, snap.IPv6)
-			states = append(states, state)
+			if state.Host != "" {
+				states = append(states, state)
+			}
 			if err != nil {
 				errs = append(errs, err)
 			}
 			if zone.DDNS.Wildcard {
 				state, err := s.syncRecord(ctx, providerRef, updater, zone, "*."+zone.Domain, ddnsprovider.RecordTypeAAAA, snap.IPv6)
-				states = append(states, state)
+				if state.Host != "" {
+					states = append(states, state)
+				}
 				if err != nil {
 					errs = append(errs, err)
 				}
@@ -92,8 +109,21 @@ func (s *Service) SyncZone(ctx context.Context, zone core.ManagedZone) ([]core.D
 }
 
 func (s *Service) syncRecord(ctx context.Context, providerRef string, updater ddnsprovider.Updater, zone core.ManagedZone, host string, recordType ddnsprovider.RecordType, value string) (core.DDNSSyncState, error) {
+	if !core.DomainWithinManagedDomain(zone.Domain, host) {
+		return core.DDNSSyncState{}, ddnsprovider.WrapTargetOutsideManagedDomain(zone.Domain, host)
+	}
+	resolver := s.AuthZones
+	if resolver == nil {
+		defaultResolver := authzone.NewNSResolver()
+		resolver = defaultResolver
+	}
+	authZone, err := resolver.ResolveAuthZone(ctx, host)
+	if err != nil {
+		return core.DDNSSyncState{}, ddnsprovider.WrapZoneResolutionFailed(host, err)
+	}
 	state := core.DDNSSyncState{
-		Zone:       zone.Name,
+		Domain:     stateDomain(zone),
+		Zone:       authZone,
 		Provider:   providerRef,
 		Host:       host,
 		RecordType: string(recordType),
@@ -101,13 +131,16 @@ func (s *Service) syncRecord(ctx context.Context, providerRef string, updater dd
 		SyncedAt:   time.Now(),
 	}
 	if s.StateStore != nil {
-		if previous, ok := s.StateStore.GetDDNSSyncState(zone.Name, providerRef, host, string(recordType)); ok && previous.Value == value && previous.Status != "failed" {
+		if previous, ok := s.StateStore.GetDDNSSyncState(state.Domain, providerRef, host, string(recordType)); ok && previous.Value == value && previous.Status != "failed" {
 			state.Status = "noop"
 			return state, s.StateStore.PutDDNSSyncState(state)
 		}
 	}
-	err := updater.Upsert(ctx, ddnsprovider.Record{Zone: zone.Domain, Name: host, Type: recordType, Value: value, TTL: zone.DDNS.TTL})
+	err = updater.Upsert(ctx, ddnsprovider.Record{Domain: zone.Domain, Zone: authZone, Name: host, Type: recordType, Value: value, TTL: zone.DDNS.TTL})
 	if err != nil {
+		if ddnsprovider.IsAccessDenied(err) {
+			err = ddnsprovider.WrapZoneAccessDenied(authZone, err)
+		}
 		state.Status = "failed"
 		state.Error = err.Error()
 		if s.StateStore != nil {

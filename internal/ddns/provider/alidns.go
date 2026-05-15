@@ -63,7 +63,11 @@ func (a *AliDNS) Name() string {
 }
 
 func (a *AliDNS) Upsert(ctx context.Context, record Record) error {
-	resolved, err := ResolveRecordName(record.Zone, record.Name)
+	zoneName := record.Zone
+	if zoneName == "" {
+		zoneName = record.Domain
+	}
+	resolved, err := ResolveRecordName(zoneName, record.Name)
 	if err != nil {
 		return err
 	}

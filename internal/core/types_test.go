@@ -78,6 +78,17 @@ func TestManagedZoneCertificatePlansRejectsForeignDomains(t *testing.T) {
 	}
 }
 
+func TestDomainWithinManagedDomain(t *testing.T) {
+	t.Parallel()
+
+	if !DomainWithinManagedDomain("sub.example.com", "_acme-challenge.sub.example.com") {
+		t.Fatal("expected acme challenge fqdn to stay inside managed domain")
+	}
+	if DomainWithinManagedDomain("sub.example.com", "other.example.com") {
+		t.Fatal("expected sibling domain to be rejected")
+	}
+}
+
 func TestApplyCertificatePlanTargetsUsesCurrentPolicyBindings(t *testing.T) {
 	t.Parallel()
 

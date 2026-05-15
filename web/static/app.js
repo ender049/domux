@@ -1,10 +1,10 @@
 const endpoints = {
   applications: '/api/v1/applications',
   customApps: '/api/v1/apps',
-  zones: '/api/v1/zones',
+  domains: '/api/v1/domains',
   providers: '/api/v1/ddns-providers',
   providerCatalog: '/api/v1/ddns-providers/catalog',
-  sources: '/api/v1/runtimes',
+  serverRuntime: '/api/v1/runtimes',
   routes: '/api/v1/routes',
   agents: '/api/v1/agents',
   resources: '/api/v1/nodes/resources',
@@ -40,10 +40,10 @@ const state = {
   data: {
     applications: [],
     customApps: [],
-    zones: [],
+    domains: [],
     providers: [],
     providerCatalog: [],
-    sources: [],
+    serverRuntime: [],
     routes: [],
     agents: [],
     resources: [],
@@ -56,6 +56,10 @@ const state = {
     logs: [],
   },
 };
+
+function domainState() {
+  return Array.isArray(state.data.domains) ? state.data.domains : [];
+}
 
 const statusCopy = {
   proxied: '已代理',
@@ -323,13 +327,13 @@ function renderAll() {
 function renderOverview() {
   const apps = state.data.applications;
   const issues = apps.filter(isAppIssue).length;
-  const zones = state.data.zones;
+  const domains = domainState();
   const nodes = nodeItems();
   const ddnsIssues = ddnsProblemItems().length;
   const nodeIssues = nodes.filter((node) => isBadStatus(node.status)).length;
   const cards = [
     { id: 'applications', label: '应用', value: apps.length, tone: issues ? 'warning' : 'good' },
-    { id: 'domains', label: '域名', value: zones.length, tone: ddnsIssues ? 'bad' : zones.length ? 'good' : 'warning' },
+    { id: 'domains', label: '域名', value: domains.length, tone: ddnsIssues ? 'bad' : domains.length ? 'good' : 'warning' },
     { id: 'nodes', label: '节点', value: nodes.length, tone: nodeIssues ? 'bad' : nodes.length ? 'good' : 'warning' },
   ];
   document.getElementById('system-overview').innerHTML = cards.map((card) => `
@@ -455,13 +459,13 @@ function renderApplicationCard(app) {
 
 function renderDomains() {
   const list = document.getElementById('domain-list');
-  const zones = state.data.zones;
-  list.innerHTML = zones.length ? zones.map(renderDomainCard).join('') : emptyState('还没有域名', '添加一个默认域名后，容器只写少量 domux.* 标签就能获得入口。');
+  const domains = domainState();
+  list.innerHTML = domains.length ? domains.map(renderDomainCard).join('') : emptyState('还没有域名', '添加一个默认域名后，容器只写少量 domux.* 标签就能获得入口。');
   for (const edit of list.querySelectorAll('[data-edit-zone]')) {
     edit.addEventListener('click', () => openDialog('zone', edit.dataset.editZone));
   }
   for (const sync of list.querySelectorAll('[data-sync-zone]')) {
-    sync.addEventListener('click', () => handleAction('ddns-sync', { zone: sync.dataset.syncZone }));
+    sync.addEventListener('click', () => handleAction('ddns-sync', { domain: sync.dataset.syncZone }));
   }
   for (const remove of list.querySelectorAll('[data-delete-zone]')) {
     remove.addEventListener('click', () => deleteZoneByName(remove.dataset.deleteZone));
@@ -475,10 +479,10 @@ function bindZoneEditButtons(container) {
 }
 
 function renderDomainCard(zone) {
-  const ddnsStates = state.data.ddns.filter((item) => item.zone === zone.name);
+  const ddnsStates = state.data.ddns.filter((item) => (item.zone || item.domain) === zone.domain);
   const badDDNS = ddnsStates.find((item) => item.error || isBadStatus(item.status));
-  const certs = certificateItems().filter((item) => item.zone === zone.name);
-  const appCount = state.data.applications.filter((app) => app.zone === zone.name).length;
+  const certs = certificateItems().filter((item) => (item.zone || item.domain) === zone.domain);
+  const appCount = state.data.applications.filter((app) => (app.domain || app.zone) === zone.domain).length;
   const tone = badDDNS ? 'bad' : zone.wildcard || (zone.ddns && zone.ddns.enabled) || (zone.certificate && zone.certificate.enabled) ? 'good' : 'info';
   const latestDDNS = latestByTime(ddnsStates, 'synced_at');
   const latestCert = latestByTime(certs, 'not_after');
@@ -491,14 +495,14 @@ function renderDomainCard(zone) {
         <div class="card-title"><strong>${escapeHTML(zone.domain)}</strong>${zoneFeatureLabel(zone)}</div>
         <div class="card-side">
           ${renderCardActions('域名操作', [
-            { icon: 'edit', label: '编辑域名', attrs: `data-edit-zone="${escapeAttribute(zone.name)}"` },
-            { icon: 'delete', label: '删除域名', attrs: `data-delete-zone="${escapeAttribute(zone.name)}"`, danger: true },
+            { icon: 'edit', label: '编辑域名', attrs: `data-edit-zone="${escapeAttribute(zone.domain)}"` },
+            { icon: 'delete', label: '删除域名', attrs: `data-delete-zone="${escapeAttribute(zone.domain)}"`, danger: true },
           ])}
         </div>
       </div>
       <div class="card-lines">
         ${dataLine('IP 地址', latestDDNS && latestDDNS.value ? latestDDNS.value : '未同步')}
-        ${ddnsEnabled ? clickableDataLine('DDNS', ddnsSummary(latestDDNS, badDDNS), '点击同步 DDNS 解析', zone.name) : dataLine('DDNS', '未启用')}
+        ${ddnsEnabled ? clickableDataLine('DDNS', ddnsSummary(latestDDNS, badDDNS), '点击同步 DDNS 解析', zone.domain) : dataLine('DDNS', '未启用')}
         ${dataLine('证书', certificateSummary(zone, latestCert))}
         ${dataLine('部署', deploySummary(zone, latestDeploy))}
         ${badDDNS && badDDNS.error ? dataLine('原因', ddnsErrorHint(badDDNS)) : ''}
@@ -787,8 +791,8 @@ function agentDisplayName(agent) {
 }
 
 function localNodeDisplayName() {
-  const source = state.data.sources[0] || null;
-  return source && source.display_name ? source.display_name : '控制节点';
+  const runtime = state.data.serverRuntime[0] || null;
+  return runtime && runtime.display_name ? runtime.display_name : '控制节点';
 }
 
 function nodeItems() {
@@ -802,7 +806,7 @@ function nodeItems() {
     status: 'online',
     raw: {},
   };
-  const localHealth = state.data.sources.map(sourceHealth).find((health) => isBadStatus(health.status)) || state.data.sources.map(sourceHealth).find((health) => health.status === 'pending');
+  const localHealth = state.data.serverRuntime.map(sourceHealth).find((health) => isBadStatus(health.status)) || state.data.serverRuntime.map(sourceHealth).find((health) => health.status === 'pending');
   if (localHealth) {
     server.status = localHealth.status;
     server.raw = { last_error: localHealth.message };
@@ -839,7 +843,7 @@ function nodeSubtitle(kind, runtime) {
 
 function certificateItems() {
   const byName = new Map(state.data.certificates.map((cert) => [cert.name, { ...cert, planned: false }]));
-  for (const zone of state.data.zones) {
+  for (const zone of domainState()) {
     if (!zone.certificate || !zone.certificate.enabled) {
       continue;
     }
@@ -1029,7 +1033,8 @@ function defaultCertificateDomains(zone) {
 }
 
 function defaultZoneLabel() {
-  const zone = state.data.zones.find((item) => item.default) || (state.data.zones.length === 1 ? state.data.zones[0] : null);
+  const domains = domainState();
+  const zone = domains.find((item) => item.default) || (domains.length === 1 ? domains[0] : null);
   return zone ? zone.name : '未设置';
 }
 
@@ -1071,7 +1076,8 @@ async function handleAction(action, dataset = {}) {
 
 function actionURL(action, dataset) {
   const params = new URLSearchParams();
-  if (dataset.zone) params.set('zone', dataset.zone);
+  if (dataset.domain) params.set('domain', dataset.domain);
+  if (dataset.zone) params.set('domain', dataset.zone);
   if (dataset.bundle) params.set('bundle', dataset.bundle);
   if (dataset.target) params.set('target', dataset.target);
   const query = params.toString();
@@ -1105,7 +1111,7 @@ function fillCustomAppForm(name) {
   setText('custom-app-dialog-title', app ? '编辑应用' : '添加应用');
   setValue('custom-app-name', app ? app.name : '');
   setValue('custom-app-icon', app ? app.icon || '' : '');
-  setValue('custom-app-zone', app ? app.zone : defaultZoneValue());
+  setValue('custom-app-zone', app ? (app.domain || app.zone) : defaultZoneValue());
   setValue('custom-app-subdomain', app ? app.subdomain || '' : '');
   setValue('custom-app-exit-node', app ? app.exit_node || '' : '');
   setValue('custom-app-target-url', app ? app.target_url || '' : '');
@@ -1117,7 +1123,6 @@ async function submitCustomApp(event) {
   const mode = value('custom-app-mode');
   const name = value('custom-app-name');
   const originalName = state.editing['custom-app'] || name;
-  const zoneName = value('custom-app-zone');
   if (!value('custom-app-subdomain')) {
     showToast('自定义应用必须填写子域名', 'bad');
     document.getElementById('custom-app-subdomain').focus();
@@ -1126,6 +1131,7 @@ async function submitCustomApp(event) {
   const payload = {
     name,
     icon: value('custom-app-icon'),
+    domain: value('custom-app-zone'),
     zone: value('custom-app-zone'),
     subdomain: value('custom-app-subdomain'),
     exit_node: value('custom-app-exit-node'),
@@ -1141,7 +1147,7 @@ async function deleteCustomAppByName(name) {
 
 function fillZoneForm(name) {
   populateSelects();
-  const zone = state.data.zones.find((item) => item.name === name) || null;
+  const zone = domainState().find((item) => item.name === name || item.domain === name) || null;
   setValue('zone-mode', zone ? 'edit' : 'create');
   setText('zone-dialog-title', zone ? '编辑域名' : '添加域名');
   setValue('zone-name', zone ? zone.name : '');
@@ -1159,8 +1165,8 @@ async function submitZone(event) {
   event.preventDefault();
   const mode = value('zone-mode');
   const domain = value('zone-domain');
-  const name = mode === 'edit' ? value('zone-name') : zoneNameFromDomain(domain);
-  const existing = state.data.zones.find((item) => item.name === name);
+  const name = mode === 'edit' ? value('zone-name') : domain;
+  const existing = domainState().find((item) => item.name === name || item.domain === domain);
   const providerRef = value('zone-ddns-provider');
   const certificateEnabled = Boolean(providerRef);
   if (checked('zone-ddns-enabled') && !providerRef) {
@@ -1191,12 +1197,12 @@ async function submitZone(event) {
       deploy_targets: deployTargets,
     },
   };
-  await saveResource(mode === 'edit' ? `/api/v1/zones/${encodeURIComponent(name)}` : endpoints.zones, mode === 'edit' ? 'PUT' : 'POST', payload, 'zone');
+  await saveResource(mode === 'edit' ? `/api/v1/domains/${encodeURIComponent(name)}` : endpoints.domains, mode === 'edit' ? 'PUT' : 'POST', payload, 'zone');
 }
 
 async function deleteZoneByName(name) {
   if (!name || !confirm(`删除域名 ${name}？`)) return;
-  await deleteResource(`/api/v1/zones/${encodeURIComponent(name)}`, '');
+  await deleteResource(`/api/v1/domains/${encodeURIComponent(name)}`, '');
 }
 
 function fillProviderForm(ref) {
@@ -1265,30 +1271,22 @@ async function deleteProviderByRef(ref) {
   await deleteResource(`/api/v1/ddns-providers/${encodeURIComponent(ref)}`, 'provider');
 }
 
-function fillLocalNodeForm(runtime) {
-  if (!runtime && state.data.sources.length > 0) {
-    runtime = state.data.sources[0].runtime || '';
-  }
-  const source = state.data.sources.find((item) => item.runtime === runtime) || null;
-  setValue('agent-mode', source ? 'edit' : 'create');
-  setValue('agent-kind', 'source');
-  setText('agent-dialog-title', '编辑控制节点');
-  setValue('agent-name', 'server');
-  setValue('agent-runtime-original', source ? source.runtime || '' : runtime || '');
-  setValue('agent-display-name', source ? source.display_name || '控制节点' : '控制节点');
-  setValue('agent-addr', source ? source.endpoint || '' : 'unix:///var/run/docker.sock');
-  setValue('agent-runtime', source ? source.runtime || 'docker' : 'docker');
+function fillLocalNodeForm() {
+	const runtime = state.data.serverRuntime[0] || null;
+	setValue('agent-mode', runtime ? 'edit' : 'create');
+	setValue('agent-kind', 'source');
+	setText('agent-dialog-title', '编辑控制节点');
+	setValue('agent-name', 'server');
+	setValue('agent-runtime-original', runtime ? runtime.runtime || '' : '');
+	setValue('agent-display-name', runtime ? runtime.display_name || '控制节点' : '控制节点');
+	setValue('agent-addr', runtime ? runtime.endpoint || '' : 'unix:///var/run/docker.sock');
+	setValue('agent-runtime', runtime ? runtime.runtime || 'docker' : 'docker');
   setValue('agent-socket-path', '');
   document.getElementById('agent-runtime').disabled = false;
   document.querySelector('[data-agent-field="socket"]').hidden = true;
   document.querySelector('[data-agent-field="network"]').hidden = false;
   document.getElementById('agent-save').hidden = false;
-  void updateAgentNetworkOptions(source ? source.network || '' : '');
-}
-
-async function deleteSourceByName(runtime) {
-  if (!runtime || !confirm(`删除节点运行时 ${runtimeCopy[runtime] || runtime}？`)) return;
-  await deleteResource(`/api/v1/runtimes/${encodeURIComponent(runtime)}`, '');
+  void updateAgentNetworkOptions(runtime ? runtime.network || '' : '');
 }
 
 async function updateAgentNetworkOptions(selected = '') {
@@ -1318,8 +1316,8 @@ async function updateAgentNetworkOptions(selected = '') {
 
 function fillAgentForm(name) {
   if (name === 'server') {
-    fillLocalNodeForm('');
-    return;
+		fillLocalNodeForm();
+		return;
   }
   const agent = state.data.agents.find((item) => item.name === name) || null;
   if (!agent) return;
@@ -1344,18 +1342,17 @@ async function submitAgent(event) {
   const mode = value('agent-mode');
   const kind = value('agent-kind');
   const name = value('agent-name');
-  if (kind === 'source') {
-    const runtime = value('agent-runtime');
-    const originalRuntime = value('agent-runtime-original') || runtime;
-    const payload = {
-      display_name: value('agent-display-name'),
-      runtime,
-      endpoint: value('agent-addr'),
-      network: value('agent-network'),
-    };
-    await saveResource(mode === 'edit' ? `/api/v1/runtimes/${encodeURIComponent(originalRuntime)}` : endpoints.sources, mode === 'edit' ? 'PUT' : 'POST', payload, 'agent');
-    return;
-  }
+	if (kind === 'source') {
+		const runtime = value('agent-runtime');
+		const payload = {
+			display_name: value('agent-display-name'),
+			runtime,
+			endpoint: value('agent-addr'),
+			network: value('agent-network'),
+		};
+		await saveResource('/api/v1/server/runtime', 'PUT', payload, 'agent');
+		return;
+	}
   const payload = {
     name,
     display_name: value('agent-display-name'),
@@ -1528,7 +1525,7 @@ async function deleteResource(url, dialogKind) {
 }
 
 function populateSelects() {
-  setOptions('custom-app-zone', state.data.zones.map((zone) => [zone.name, zone.domain]));
+  setOptions('custom-app-zone', domainState().map((zone) => [zone.domain, zone.domain]));
   setOptions('custom-app-exit-node', [['', localNodeDisplayName()], ...state.data.agents.map((agent) => [agent.name, agentDisplayName(agent)])]);
   setOptions('zone-ddns-provider', state.data.providers.map((provider) => [provider.ref, `${provider.ref} · ${provider.type}`]), '未选择');
   setOptions('deploy-target-agent', state.data.agents.map((agent) => [agent.name, agentDisplayName(agent)]), '选择节点');
@@ -1537,12 +1534,6 @@ function populateSelects() {
 
 function defaultProviderValue() {
   return state.data.providers[0] ? state.data.providers[0].ref : '';
-}
-
-function zoneNameFromDomain(domain) {
-  const cleaned = String(domain || '').trim().toLowerCase();
-  const first = cleaned.split('.')[0];
-  return first || cleaned.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'domain';
 }
 
 function renderCertificateDeployTargetChoices(selectedValues = []) {
@@ -1641,8 +1632,9 @@ function multiValue(id) {
 }
 
 function defaultZoneValue() {
-  const zone = state.data.zones.find((item) => item.default) || state.data.zones[0];
-  return zone ? zone.name : '';
+  const domains = domainState();
+  const zone = domains.find((item) => item.default) || domains[0];
+  return zone ? zone.domain : '';
 }
 
 function parseOptions(text) {
@@ -1787,7 +1779,6 @@ function localizeError(message) {
     'custom app deleted': '应用已删除。',
     'zone deleted': '域名已删除。',
     'ddns provider deleted': 'DNS 连接已删除。',
-    'docker source deleted': '节点运行时已删除。',
     'runtime deleted': '节点运行时已删除。',
     'agent deleted': '节点已删除。',
     'deploy target deleted': '下发目标已删除。',

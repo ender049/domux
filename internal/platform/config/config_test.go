@@ -1,8 +1,11 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"domux/internal/core"
 )
@@ -11,8 +14,7 @@ func TestValidateCrossReferences(t *testing.T) {
 	t.Parallel()
 
 	valid := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "cloudflare-home",
 			Type: "cloudflare",
@@ -33,7 +35,7 @@ func TestValidateCrossReferences(t *testing.T) {
 			KeyPath:   "/tmp/privkey.pem",
 		}},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			DDNS: core.DDNSZoneConfig{
 				Enabled:      true,
@@ -51,7 +53,7 @@ func TestValidateCrossReferences(t *testing.T) {
 		}},
 		Apps: []core.CustomApp{{
 			Name:      "docs",
-			Zone:      "home",
+			Zone:      "home.example.com",
 			Subdomain: "docs",
 			ExitNode:  "edge-2",
 			TargetURL: "https://example.com",
@@ -62,12 +64,11 @@ func TestValidateCrossReferences(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsCustomAppUnknownZone(t *testing.T) {
+func TestValidateRejectsCustomAppUnknownDomain(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Apps: []core.CustomApp{{
 			Name:      "docs",
 			Zone:      "missing",
@@ -77,8 +78,8 @@ func TestValidateRejectsCustomAppUnknownZone(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	if err == nil || !contains(err.Error(), "references unknown zone") {
-		t.Fatalf("expected custom app unknown zone error, got %v", err)
+	if err == nil || !contains(err.Error(), "references unknown domain") {
+		t.Fatalf("expected custom app unknown domain error, got %v", err)
 	}
 }
 
@@ -86,12 +87,11 @@ func TestValidateRejectsCustomAppUnknownExitNode(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		Zones:   []core.ManagedZone{{Name: "home", Domain: "home.example.com"}},
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones:   []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}},
 		Apps: []core.CustomApp{{
 			Name:      "docs",
-			Zone:      "home",
+			Zone:      "home.example.com",
 			Subdomain: "docs",
 			ExitNode:  "missing-agent",
 			TargetURL: "https://example.com",
@@ -104,14 +104,13 @@ func TestValidateRejectsCustomAppUnknownExitNode(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownZoneRefs(t *testing.T) {
+func TestValidateRejectsUnknownDomainRefs(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			DDNS: core.DDNSZoneConfig{
 				Enabled:      true,
@@ -131,7 +130,7 @@ func TestValidateRejectsUnknownZoneRefs(t *testing.T) {
 
 	err := cfg.Validate()
 	if err == nil {
-		t.Fatal("expected validation error for unknown zone refs")
+		t.Fatal("expected validation error for unknown domain refs")
 	}
 	message := err.Error()
 	for _, want := range []string{"unknown dns provider", "unknown deploy target"} {
@@ -145,8 +144,7 @@ func TestValidateRejectsUnknownAgentReference(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DeployTargets: []core.DeployTarget{{
 			Name:      "remote-edge-2",
 			Transport: core.DeployTransportAgent,
@@ -166,9 +164,7 @@ func TestValidateAcceptsPodmanRuntimeSourceWithoutExplicitEndpoint(t *testing.T)
 	t.Setenv("XDG_RUNTIME_DIR", "/tmp/jd-podman")
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		Runtimes: []core.RuntimeSource{{
+		Server: ServerConfig{APIAddr: ":18080", DataDir: "./data", Runtime: core.RuntimeSource{
 			Runtime: core.ContainerRuntimePodman,
 		}},
 	}
@@ -182,8 +178,7 @@ func TestValidateRejectsUnsupportedDDNSProviderType(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "custom-home",
 			Type: "unknown-provider",
@@ -200,8 +195,7 @@ func TestValidateRejectsInvalidDDNSProviderOptions(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "cloudflare-home",
 			Type: "cloudflare",
@@ -218,8 +212,7 @@ func TestValidateRejectsUnsupportedProviderOptionKeys(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "cloudflare-home",
 			Type: "cloudflare",
@@ -240,8 +233,7 @@ func TestValidateRejectsProviderWithUnsupportedType(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "unknown-home",
 			Type: "unknown_type",
@@ -250,7 +242,7 @@ func TestValidateRejectsProviderWithUnsupportedType(t *testing.T) {
 			},
 		}},
 		Zones: []core.ManagedZone{{
-			Name:   "home",
+			Name:   "home.example.com",
 			Domain: "home.example.com",
 			Certificate: core.CertificatePolicy{
 				Enabled:     true,
@@ -266,12 +258,33 @@ func TestValidateRejectsProviderWithUnsupportedType(t *testing.T) {
 	}
 }
 
+func TestLoadFileSupportsDomainTreeShape(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := dir + "/config.yaml"
+	content := []byte("server:\n  api_addr: ':18080'\n  data_dir: ./data\ndomains:\n  - domain: home.example.com\n    default: true\n    wildcard: true\n    entries:\n      manual:\n        - name: docs\n          subdomain: docs\n          target_url: https://example.com\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if len(cfg.Zones) != 1 || cfg.Zones[0].Name != "home.example.com" {
+		t.Fatalf("unexpected zones: %+v", cfg.Zones)
+	}
+	if len(cfg.Apps) != 1 || cfg.Apps[0].Domain != "home.example.com" {
+		t.Fatalf("unexpected apps: %+v", cfg.Apps)
+	}
+}
+
 func TestValidateRejectsUnsupportedNonOfficialProviderType(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "legacy-home",
 			Type: "legacydns",
@@ -287,12 +300,66 @@ func TestValidateRejectsUnsupportedNonOfficialProviderType(t *testing.T) {
 	}
 }
 
+func TestMarshalYAMLPreservesDomainDisplayNameAndManualEntries(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
+		Zones: []core.ManagedZone{{
+			Name:   "Home",
+			Domain: "home.example.com",
+		}},
+		Apps: []core.CustomApp{{
+			Name:      "docs",
+			Domain:    "home.example.com",
+			Zone:      "home.example.com",
+			Subdomain: "docs",
+			TargetURL: "https://example.com",
+		}},
+	}
+
+	data, err := yaml.Marshal(&cfg)
+	if err != nil {
+		t.Fatalf("yaml.Marshal() error = %v", err)
+	}
+	var out configYAML
+	if err := yaml.Unmarshal(data, &out); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if len(out.Domains) != 1 {
+		t.Fatalf("expected 1 domain, got %+v", out.Domains)
+	}
+	if out.Domains[0].Name != "Home" || out.Domains[0].Domain != "home.example.com" {
+		t.Fatalf("unexpected domain yaml: %+v", out.Domains[0])
+	}
+	if len(out.Domains[0].Entries.Manual) != 1 || out.Domains[0].Entries.Manual[0].Name != "docs" {
+		t.Fatalf("unexpected manual entries: %+v", out.Domains[0].Entries.Manual)
+	}
+}
+
+func TestLoadDomainsYAMLPreservesDisplayName(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := dir + "/config.yaml"
+	content := []byte("server:\n  api_addr: \":18080\"\n  data_dir: ./data\ndomains:\n  - name: Home\n    domain: home.example.com\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if len(cfg.Zones) != 1 || cfg.Zones[0].Name != "Home" || cfg.Zones[0].Domain != "home.example.com" {
+		t.Fatalf("unexpected zones: %+v", cfg.Zones)
+	}
+}
+
 func TestValidateAcceptsUnifiedSpaceshipProviderForBothRoles(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "spaceship-home",
 			Type: "spaceship",
@@ -327,8 +394,7 @@ func TestValidateAcceptsUnifiedProviderForBothRoles(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
+		Server:  ServerConfig{APIAddr: ":18080", DataDir: "./data"},
 		DDNSProviders: []core.DDNSProviderConfig{{
 			Ref:  "cloudflare-home",
 			Type: "cloudflare",
@@ -365,8 +431,8 @@ func TestValidateRejectsPartialServerAuthConfig(t *testing.T) {
 		Server: ServerConfig{
 			APIAddr: ":18080",
 			Auth:    AuthConfig{Username: "admin"},
+			DataDir: "./data",
 		},
-		DataDir: "./data",
 	}
 
 	err := cfg.Validate()
@@ -379,18 +445,16 @@ func TestValidateAcceptsCustomPublicIPConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		PublicIP: PublicIPConfig{
+		Server: ServerConfig{APIAddr: ":18080", DataDir: "./data", PublicIP: PublicIPConfig{
 			IPv4URLs: []string{"https://v4.example.test/ip"},
 			IPv6URLs: []string{"https://v6.example.test/ip"},
 			Timeout:  3 * time.Second,
-		},
+		}},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected custom public_ip config to validate, got %v", err)
 	}
-	detector := cfg.PublicIP.Detector()
+	detector := cfg.Server.PublicIP.Detector()
 	if len(detector.IPv4URLs) != 1 || detector.IPv4URLs[0] != "https://v4.example.test/ip" {
 		t.Fatalf("unexpected IPv4 URLs: %+v", detector.IPv4URLs)
 	}
@@ -406,14 +470,10 @@ func TestValidateRejectsNegativePublicIPTimeout(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{
-		Server:  ServerConfig{APIAddr: ":18080"},
-		DataDir: "./data",
-		PublicIP: PublicIPConfig{
-			Timeout: -time.Second,
-		},
+		Server: ServerConfig{APIAddr: ":18080", DataDir: "./data", PublicIP: PublicIPConfig{Timeout: -time.Second}},
 	}
 	err := cfg.Validate()
-	if err == nil || !contains(err.Error(), "public_ip.timeout") {
+	if err == nil || !contains(err.Error(), "server.public_ip.timeout") {
 		t.Fatalf("expected invalid public_ip timeout error, got %v", err)
 	}
 }

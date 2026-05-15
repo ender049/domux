@@ -6,6 +6,7 @@ import (
 )
 
 type RecordName struct {
+	Domain   string
 	Zone     string
 	FQDN     string
 	Relative string
@@ -21,7 +22,7 @@ func ResolveRecordName(zone, fqdn string) (RecordName, error) {
 		return RecordName{}, fmt.Errorf("record name is required")
 	}
 	if fqdn == zone {
-		return RecordName{Zone: zone, FQDN: fqdn, Relative: "@"}, nil
+		return RecordName{Domain: zone, Zone: zone, FQDN: fqdn, Relative: "@"}, nil
 	}
 	suffix := "." + zone
 	if !strings.HasSuffix(fqdn, suffix) {
@@ -32,7 +33,7 @@ func ResolveRecordName(zone, fqdn string) (RecordName, error) {
 	if relative == "" {
 		relative = "@"
 	}
-	return RecordName{Zone: zone, FQDN: fqdn, Relative: relative}, nil
+	return RecordName{Domain: zone, Zone: zone, FQDN: fqdn, Relative: relative}, nil
 }
 
 func (r RecordName) AliDNSSubDomain() string {

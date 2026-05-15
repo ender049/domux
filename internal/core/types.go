@@ -89,7 +89,8 @@ type DDNSProviderConfig struct {
 type CustomApp struct {
 	Name      string `yaml:"name" json:"name"`
 	Icon      string `yaml:"icon" json:"icon"`
-	Zone      string `yaml:"zone" json:"zone"`
+	Domain    string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	Zone      string `yaml:"zone,omitempty" json:"zone,omitempty"`
 	Subdomain string `yaml:"subdomain" json:"subdomain"`
 	ExitNode  string `yaml:"exit_node" json:"exit_node"`
 	TargetURL string `yaml:"target_url" json:"target_url"`
@@ -153,7 +154,8 @@ type DiscoveredRoute struct {
 	ID        string           `json:"id"`
 	Name      string           `json:"name,omitempty"`
 	Icon      string           `json:"icon,omitempty"`
-	Zone      string           `json:"zone"`
+	Domain    string           `json:"domain,omitempty"`
+	Zone      string           `json:"zone,omitempty"`
 	Subdomain string           `json:"subdomain"`
 	Host      string           `json:"host"`
 	Source    string           `json:"source"`
@@ -170,6 +172,7 @@ type Application struct {
 	ID        string           `json:"id"`
 	Name      string           `json:"name"`
 	Icon      string           `json:"icon,omitempty"`
+	Domain    string           `json:"domain,omitempty"`
 	Zone      string           `json:"zone,omitempty"`
 	Subdomain string           `json:"subdomain,omitempty"`
 	Host      string           `json:"host,omitempty"`
@@ -196,7 +199,8 @@ const (
 )
 
 type DDNSSyncState struct {
-	Zone       string    `json:"zone"`
+	Domain     string    `json:"domain,omitempty"`
+	Zone       string    `json:"zone,omitempty"`
 	Provider   string    `json:"provider"`
 	Host       string    `json:"host"`
 	RecordType string    `json:"record_type"`
@@ -208,7 +212,8 @@ type DDNSSyncState struct {
 
 type CertificateBundle struct {
 	Name          string    `json:"name"`
-	Zone          string    `json:"zone"`
+	Domain        string    `json:"domain,omitempty"`
+	Zone          string    `json:"zone,omitempty"`
 	Domains       []string  `json:"domains"`
 	DeployTargets []string  `json:"deploy_targets"`
 	CertPath      string    `json:"cert_path"`
@@ -291,19 +296,19 @@ func DefaultManagedZoneName(zones []ManagedZone) string {
 	if !ok {
 		return ""
 	}
-	return zone.Name
+	return zone.Domain
 }
 
 func (z *ManagedZone) Validate() error {
-	if z.Name == "" {
-		return errors.New("zone name is required")
-	}
 	if z.Domain == "" {
-		return fmt.Errorf("zone %q domain is required", z.Name)
+		return errors.New("domain is required")
+	}
+	if z.Name == "" {
+		z.Name = strings.TrimSpace(z.Domain)
 	}
 	if z.DDNS.Enabled {
 		if len(z.DDNS.ProviderRefs) == 0 {
-			return fmt.Errorf("zone %q ddns provider_refs is required", z.Name)
+			return fmt.Errorf("domain %q ddns provider_refs is required", z.Domain)
 		}
 		if z.DDNS.TTL == 0 {
 			z.DDNS.TTL = DefaultDDNSTTL
@@ -311,10 +316,10 @@ func (z *ManagedZone) Validate() error {
 	}
 	if z.Certificate.Enabled {
 		if z.Certificate.Email == "" {
-			return fmt.Errorf("zone %q certificate email is required", z.Name)
+			return fmt.Errorf("domain %q certificate email is required", z.Domain)
 		}
 		if z.Certificate.DNSProvider == "" {
-			return fmt.Errorf("zone %q certificate dns_provider is required", z.Name)
+			return fmt.Errorf("domain %q certificate dns_provider is required", z.Domain)
 		}
 		if z.Certificate.RenewBefore == 0 {
 			z.Certificate.RenewBefore = DefaultCertificateRenewBefore
@@ -433,14 +438,18 @@ func domainsForManagedZone(zone ManagedZone) []string {
 	return compactNames(domains)
 }
 
-func domainBelongsToZone(zoneDomain, domain string) bool {
-	zoneDomain = strings.TrimSuffix(strings.TrimSpace(zoneDomain), ".")
+func DomainWithinManagedDomain(managedDomain, domain string) bool {
+	managedDomain = strings.TrimSuffix(strings.TrimSpace(managedDomain), ".")
 	domain = strings.TrimSuffix(strings.TrimSpace(domain), ".")
 	domain = strings.TrimPrefix(domain, "*.")
-	if domain == zoneDomain {
+	if domain == managedDomain {
 		return true
 	}
-	return strings.HasSuffix(domain, "."+zoneDomain)
+	return strings.HasSuffix(domain, "."+managedDomain)
+}
+
+func domainBelongsToZone(zoneDomain, domain string) bool {
+	return DomainWithinManagedDomain(zoneDomain, domain)
 }
 
 func compactNames(values []string) []string {
@@ -610,11 +619,14 @@ func (p DDNSProviderConfig) Validate() error {
 }
 
 func (a CustomApp) Validate() error {
+	if strings.TrimSpace(a.Domain) == "" {
+		a.Domain = strings.TrimSpace(a.Zone)
+	}
 	if strings.TrimSpace(a.Name) == "" {
 		return errors.New("custom app name is required")
 	}
-	if strings.TrimSpace(a.Zone) == "" {
-		return fmt.Errorf("custom app %q zone is required", a.Name)
+	if strings.TrimSpace(a.Domain) == "" {
+		return fmt.Errorf("custom app %q domain is required", a.Name)
 	}
 	if strings.TrimSpace(a.Subdomain) == "" {
 		return fmt.Errorf("custom app %q subdomain is required", a.Name)
@@ -654,11 +666,14 @@ func (c ContainerSnapshot) DefaultSubdomain() string {
 }
 
 func (b CertificateBundle) Validate() error {
+	if strings.TrimSpace(b.Domain) == "" {
+		b.Domain = strings.TrimSpace(b.Zone)
+	}
 	if b.Name == "" {
 		return errors.New("certificate bundle name is required")
 	}
-	if b.Zone == "" {
-		return fmt.Errorf("certificate bundle %q zone is required", b.Name)
+	if b.Domain == "" {
+		return fmt.Errorf("certificate bundle %q domain is required", b.Name)
 	}
 	if b.CertPath == "" || b.KeyPath == "" {
 		return fmt.Errorf("certificate bundle %q paths are required", b.Name)

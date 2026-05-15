@@ -25,7 +25,7 @@ import (
 )
 
 type ReadStore interface {
-	ListZones() []core.ManagedZone
+	ListDomains() []core.ManagedZone
 	ListDDNSProviders() []core.DDNSProviderConfig
 	ListCustomApps() []core.CustomApp
 	ListApplications() []core.Application
@@ -52,11 +52,11 @@ type DeployTargetStore interface {
 	DeleteDeployTarget(string) error
 }
 
-type ZoneStore interface {
+type DomainStore interface {
 	ReadStore
-	GetZone(string) (core.ManagedZone, bool)
-	PutZone(core.ManagedZone) error
-	DeleteZone(string) error
+	GetDomain(string) (core.ManagedZone, bool)
+	PutDomain(core.ManagedZone) error
+	DeleteDomain(string) error
 }
 
 type BundleStore interface {
@@ -73,7 +73,7 @@ type ConfigManager interface {
 type ReloadFunc func(context.Context, platformconfig.Config) error
 
 type ActionRequest struct {
-	Zone   string
+	Domain string
 	Source string
 	Bundle string
 	Target string
@@ -165,28 +165,34 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/v1/zones", s.handleListZones)
+	mux.HandleFunc("GET /api/v1/domains", s.handleListZones)
 	mux.HandleFunc("GET /api/v1/applications", s.handleListApplications)
 	mux.HandleFunc("GET /api/v1/apps", s.handleListCustomApps)
 	mux.HandleFunc("POST /api/v1/apps", s.handleCreateCustomApp)
 	mux.HandleFunc("PUT /api/v1/apps/{name}", s.handleUpdateCustomApp)
 	mux.HandleFunc("DELETE /api/v1/apps/{name}", s.handleDeleteCustomApp)
 	mux.HandleFunc("POST /api/v1/zones", s.handleCreateZone)
+	mux.HandleFunc("POST /api/v1/domains", s.handleCreateZone)
 	mux.HandleFunc("PUT /api/v1/zones/{name}", s.handleUpdateZone)
+	mux.HandleFunc("PUT /api/v1/domains/{name}", s.handleUpdateZone)
 	mux.HandleFunc("DELETE /api/v1/zones/{name}", s.handleDeleteZone)
+	mux.HandleFunc("DELETE /api/v1/domains/{name}", s.handleDeleteZone)
 	mux.HandleFunc("GET /api/v1/zones/{name}/bundles", s.handleListZoneBundles)
+	mux.HandleFunc("GET /api/v1/domains/{name}/bundles", s.handleListZoneBundles)
 	mux.HandleFunc("POST /api/v1/zones/{name}/bundles", s.handleCreateZoneBundle)
+	mux.HandleFunc("POST /api/v1/domains/{name}/bundles", s.handleCreateZoneBundle)
 	mux.HandleFunc("PUT /api/v1/zones/{name}/bundles/{bundle}", s.handleUpdateZoneBundle)
+	mux.HandleFunc("PUT /api/v1/domains/{name}/bundles/{bundle}", s.handleUpdateZoneBundle)
 	mux.HandleFunc("DELETE /api/v1/zones/{name}/bundles/{bundle}", s.handleDeleteZoneBundle)
+	mux.HandleFunc("DELETE /api/v1/domains/{name}/bundles/{bundle}", s.handleDeleteZoneBundle)
 	mux.HandleFunc("GET /api/v1/ddns-providers", s.handleListDDNSProviders)
 	mux.HandleFunc("GET /api/v1/ddns-providers/catalog", s.handleListDDNSProviderCatalog)
 	mux.HandleFunc("POST /api/v1/ddns-providers", s.handleCreateDDNSProvider)
 	mux.HandleFunc("PUT /api/v1/ddns-providers/{ref}", s.handleUpdateDDNSProvider)
 	mux.HandleFunc("DELETE /api/v1/ddns-providers/{ref}", s.handleDeleteDDNSProvider)
 	mux.HandleFunc("GET /api/v1/runtimes", s.handleListRuntimes)
+	mux.HandleFunc("PUT /api/v1/server/runtime", s.handleUpdateServerRuntime)
 	mux.HandleFunc("GET /api/v1/runtimes/networks", s.handleListDockerNetworks)
-	mux.HandleFunc("POST /api/v1/runtimes", s.handleCreateRuntimeSource)
-	mux.HandleFunc("PUT /api/v1/runtimes/{name}", s.handleUpdateRuntimeSource)
-	mux.HandleFunc("DELETE /api/v1/runtimes/{name}", s.handleDeleteRuntimeSource)
 	mux.HandleFunc("GET /api/v1/routes", s.handleListRoutes)
 	mux.HandleFunc("GET /api/v1/agents", s.handleListAgents)
 	mux.HandleFunc("GET /api/v1/nodes/resources", s.handleListNodeResources)
@@ -217,7 +223,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleListZones(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.ListZones())
+	writeJSON(w, http.StatusOK, s.store.ListDomains())
 }
 func (s *Server) handleListApplications(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.ListApplications())
@@ -267,17 +273,11 @@ func (s *Server) handleDeleteDDNSProvider(w http.ResponseWriter, r *http.Request
 func (s *Server) handleListRuntimes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.ListRuntimes())
 }
+func (s *Server) handleUpdateServerRuntime(w http.ResponseWriter, r *http.Request) {
+	s.updateServerRuntime(w, r)
+}
 func (s *Server) handleListDockerNetworks(w http.ResponseWriter, r *http.Request) {
 	s.listDockerNetworks(w, r)
-}
-func (s *Server) handleCreateRuntimeSource(w http.ResponseWriter, r *http.Request) {
-	s.createRuntimeSource(w, r)
-}
-func (s *Server) handleUpdateRuntimeSource(w http.ResponseWriter, r *http.Request) {
-	s.updateRuntimeSource(w, r)
-}
-func (s *Server) handleDeleteRuntimeSource(w http.ResponseWriter, r *http.Request) {
-	s.deleteRuntimeSource(w, r)
 }
 func (s *Server) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.ListRoutes())
@@ -321,7 +321,7 @@ func (s *Server) handleDeleteDeployTarget(w http.ResponseWriter, r *http.Request
 	s.deleteDeployTarget(w, r)
 }
 func (s *Server) handleListCertificates(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, core.CurrentCertificateBundles(s.store.ListZones(), s.store.ListBundles()))
+	writeJSON(w, http.StatusOK, core.CurrentCertificateBundles(s.store.ListDomains(), s.store.ListBundles()))
 }
 func (s *Server) handleListDeployments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.ListDeployRuns())
@@ -705,12 +705,12 @@ func (s *Server) createZone(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
 		for _, existing := range cfg.Zones {
-			if existing.Name == zone.Name {
-				return Conflict(fmt.Sprintf("zone %q already exists", zone.Name))
+			if existing.Domain == zone.Domain {
+				return Conflict(fmt.Sprintf("domain %q already exists", zone.Domain))
 			}
 		}
 		cfg.Zones = append(cfg.Zones, zone)
-		sort.Slice(cfg.Zones, func(i, j int) bool { return cfg.Zones[i].Name < cfg.Zones[j].Name })
+		sort.Slice(cfg.Zones, func(i, j int) bool { return cfg.Zones[i].Domain < cfg.Zones[j].Domain })
 		return nil
 	}); err != nil {
 		s.writeMutationError(w, err)
@@ -726,7 +726,7 @@ func (s *Server) updateZone(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.PathValue("name"))
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return
 	}
 	zone, err := decodeZone(r.Body)
@@ -746,13 +746,13 @@ func (s *Server) updateZone(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if index < 0 {
-			return NotFound(fmt.Sprintf("zone %q not found", name))
+			return NotFound(fmt.Sprintf("domain %q not found", name))
 		}
 		if zone.Name != name {
-			return BadRequest(fmt.Errorf("renaming zones is not supported"))
+			return BadRequest(fmt.Errorf("renaming domains is not supported"))
 		}
 		cfg.Zones[index] = zone
-		sort.Slice(cfg.Zones, func(i, j int) bool { return cfg.Zones[i].Name < cfg.Zones[j].Name })
+		sort.Slice(cfg.Zones, func(i, j int) bool { return cfg.Zones[i].Domain < cfg.Zones[j].Domain })
 		return nil
 	}); err != nil {
 		s.writeMutationError(w, err)
@@ -768,7 +768,7 @@ func (s *Server) deleteZone(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.PathValue("name"))
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return
 	}
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
@@ -780,7 +780,7 @@ func (s *Server) deleteZone(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if index < 0 {
-			return NotFound(fmt.Sprintf("zone %q not found", name))
+			return NotFound(fmt.Sprintf("domain %q not found", name))
 		}
 		cfg.Zones = append(cfg.Zones[:index], cfg.Zones[index+1:]...)
 		return nil
@@ -788,7 +788,7 @@ func (s *Server) deleteZone(w http.ResponseWriter, r *http.Request) {
 		s.writeMutationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "zone deleted"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "domain deleted"})
 }
 
 func (s *Server) createDDNSProvider(w http.ResponseWriter, r *http.Request) {
@@ -899,7 +899,7 @@ func (s *Server) deleteDDNSProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listZoneBundles(w http.ResponseWriter, r *http.Request) {
-	store, ok := s.zoneStore()
+	store, ok := s.domainStore()
 	if !ok {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"status": "disabled"})
 		return
@@ -918,7 +918,7 @@ func (s *Server) createZoneBundle(w http.ResponseWriter, r *http.Request) {
 	}
 	zoneName := strings.TrimSpace(r.PathValue("name"))
 	if zoneName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return
 	}
 	bundle, err := decodeBundlePolicy(r.Body)
@@ -927,16 +927,16 @@ func (s *Server) createZoneBundle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bundle.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": fmt.Sprintf("zone %q certificate bundle name is required", zoneName)})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": fmt.Sprintf("domain %q certificate bundle name is required", zoneName)})
 		return
 	}
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
 		zone, index, ok := findConfigZone(cfg, zoneName)
 		if !ok {
-			return NotFound(fmt.Sprintf("zone %q not found", zoneName))
+			return NotFound(fmt.Sprintf("domain %q not found", zoneName))
 		}
 		if _, _, exists := findZoneBundle(zone, bundle.Name); exists {
-			return Conflict(fmt.Sprintf("zone %q certificate bundle %q already exists", zone.Name, core.QualifiedBundleName(zone.Name, bundle.Name)))
+			return Conflict(fmt.Sprintf("domain %q certificate bundle %q already exists", zone.Domain, core.QualifiedBundleName(zone.Name, bundle.Name)))
 		}
 		zone.Certificate.Bundles = append(zone.Certificate.Bundles, bundle)
 		sortBundlePolicies(zone.Name, zone.Certificate.Bundles)
@@ -1014,7 +1014,7 @@ func (s *Server) listDockerNetworks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, names)
 }
 
-func (s *Server) createRuntimeSource(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateServerRuntime(w http.ResponseWriter, r *http.Request) {
 	if !s.configEnabled() {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"status": "disabled"})
 		return
@@ -1025,97 +1025,13 @@ func (s *Server) createRuntimeSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
-		source = source.Normalized()
-		for i, existing := range cfg.Runtimes {
-			if existing.RuntimeOrDefault() == source.RuntimeOrDefault() {
-				cfg.Runtimes[i] = source
-				sort.Slice(cfg.Runtimes, func(i, j int) bool { return cfg.Runtimes[i].RuntimeOrDefault() < cfg.Runtimes[j].RuntimeOrDefault() })
-				return nil
-			}
-		}
-		cfg.Runtimes = append(cfg.Runtimes, source)
-		sort.Slice(cfg.Runtimes, func(i, j int) bool { return cfg.Runtimes[i].RuntimeOrDefault() < cfg.Runtimes[j].RuntimeOrDefault() })
+		cfg.Server.Runtime = source.Normalized()
 		return nil
 	}); err != nil {
 		s.writeMutationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, source)
-}
-
-func (s *Server) updateRuntimeSource(w http.ResponseWriter, r *http.Request) {
-	if !s.configEnabled() {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"status": "disabled"})
-		return
-	}
-	name := strings.TrimSpace(r.PathValue("name"))
-	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "runtime is required"})
-		return
-	}
-	source, err := decodeRuntimeSource(r.Body)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": err.Error()})
-		return
-	}
-	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
-		source = source.Normalized()
-		index := -1
-		for i, existing := range cfg.Runtimes {
-			if string(existing.RuntimeOrDefault()) == name {
-				index = i
-				break
-			}
-		}
-		if index < 0 {
-			return NotFound(fmt.Sprintf("runtime %q not found", name))
-		}
-		for i, existing := range cfg.Runtimes {
-			if i == index {
-				continue
-			}
-			if existing.RuntimeOrDefault() == source.RuntimeOrDefault() {
-				return Conflict(fmt.Sprintf("runtime %q already exists", source.RuntimeOrDefault()))
-			}
-		}
-		cfg.Runtimes[index] = source
-		sort.Slice(cfg.Runtimes, func(i, j int) bool { return cfg.Runtimes[i].RuntimeOrDefault() < cfg.Runtimes[j].RuntimeOrDefault() })
-		return nil
-	}); err != nil {
-		s.writeMutationError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, source)
-}
-
-func (s *Server) deleteRuntimeSource(w http.ResponseWriter, r *http.Request) {
-	if !s.configEnabled() {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"status": "disabled"})
-		return
-	}
-	name := strings.TrimSpace(r.PathValue("name"))
-	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "runtime is required"})
-		return
-	}
-	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
-		index := -1
-		for i, source := range cfg.Runtimes {
-			if string(source.RuntimeOrDefault()) == name {
-				index = i
-				break
-			}
-		}
-		if index < 0 {
-			return NotFound(fmt.Sprintf("runtime %q not found", name))
-		}
-		cfg.Runtimes = append(cfg.Runtimes[:index], cfg.Runtimes[index+1:]...)
-		return nil
-	}); err != nil {
-		s.writeMutationError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "runtime deleted"})
+	writeJSON(w, http.StatusOK, source.Normalized())
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -1223,7 +1139,7 @@ func (s *Server) updateZoneBundle(w http.ResponseWriter, r *http.Request) {
 	}
 	zoneName := strings.TrimSpace(r.PathValue("name"))
 	if zoneName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return
 	}
 	bundleName := strings.TrimSpace(r.PathValue("bundle"))
@@ -1242,11 +1158,11 @@ func (s *Server) updateZoneBundle(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
 		zone, zoneIndex, ok := findConfigZone(cfg, zoneName)
 		if !ok {
-			return NotFound(fmt.Sprintf("zone %q not found", zoneName))
+			return NotFound(fmt.Sprintf("domain %q not found", zoneName))
 		}
 		_, bundleIndex, exists := findZoneBundle(zone, bundleName)
 		if !exists {
-			return NotFound(fmt.Sprintf("zone %q certificate bundle %q not found", zone.Name, core.QualifiedBundleName(zone.Name, bundleName)))
+			return NotFound(fmt.Sprintf("domain %q certificate bundle %q not found", zone.Domain, core.QualifiedBundleName(zone.Name, bundleName)))
 		}
 		if bundle.Name != bundleName {
 			return BadRequest(fmt.Errorf("renaming certificate bundles is not supported"))
@@ -1269,7 +1185,7 @@ func (s *Server) deleteZoneBundle(w http.ResponseWriter, r *http.Request) {
 	}
 	zoneName := strings.TrimSpace(r.PathValue("name"))
 	if zoneName == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return
 	}
 	bundleName := strings.TrimSpace(r.PathValue("bundle"))
@@ -1280,11 +1196,11 @@ func (s *Server) deleteZoneBundle(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.updateConfig(r.Context(), func(cfg *platformconfig.Config) error {
 		zone, zoneIndex, ok := findConfigZone(cfg, zoneName)
 		if !ok {
-			return NotFound(fmt.Sprintf("zone %q not found", zoneName))
+			return NotFound(fmt.Sprintf("domain %q not found", zoneName))
 		}
 		_, bundleIndex, exists := findZoneBundle(zone, bundleName)
 		if !exists {
-			return NotFound(fmt.Sprintf("zone %q certificate bundle %q not found", zone.Name, core.QualifiedBundleName(zone.Name, bundleName)))
+			return NotFound(fmt.Sprintf("domain %q certificate bundle %q not found", zone.Domain, core.QualifiedBundleName(zone.Name, bundleName)))
 		}
 		zone.Certificate.Bundles = append(zone.Certificate.Bundles[:bundleIndex], zone.Certificate.Bundles[bundleIndex+1:]...)
 		cfg.Zones[zoneIndex] = zone
@@ -1401,7 +1317,7 @@ func (s *Server) runAction(action ActionFunc, message string) http.HandlerFunc {
 			return
 		}
 		request := ActionRequest{
-			Zone:   strings.TrimSpace(r.URL.Query().Get("zone")),
+			Domain: strings.TrimSpace(firstNonEmpty(r.URL.Query().Get("domain"), r.URL.Query().Get("zone"))),
 			Source: strings.TrimSpace(r.URL.Query().Get("source")),
 			Bundle: strings.TrimSpace(r.URL.Query().Get("bundle")),
 			Target: strings.TrimSpace(r.URL.Query().Get("target")),
@@ -1425,8 +1341,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (s *Server) zoneStore() (ZoneStore, bool) {
-	store, ok := s.store.(ZoneStore)
+func (s *Server) domainStore() (DomainStore, bool) {
+	store, ok := s.store.(DomainStore)
 	return store, ok
 }
 
@@ -1484,9 +1400,9 @@ func (s *Server) writeMutationError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"status": "error", "error": err.Error()})
 }
 
-func (s *Server) validateZone(store ZoneStore, zone core.ManagedZone, existingName string) error {
+func (s *Server) validateZone(store DomainStore, zone core.ManagedZone, existingName string) error {
 	if existingName != "" && zone.Name != existingName {
-		return fmt.Errorf("renaming zones is not supported")
+		return fmt.Errorf("renaming domains is not supported")
 	}
 	if err := zone.Validate(); err != nil {
 		return err
@@ -1502,16 +1418,16 @@ func (s *Server) validateZone(store ZoneStore, zone core.ManagedZone, existingNa
 	for _, providerRef := range zone.DDNS.ProviderRefs {
 		provider, ok := providersByRef[providerRef]
 		if !ok {
-			return fmt.Errorf("zone %q references unknown dns provider %q", zone.Name, providerRef)
+			return fmt.Errorf("domain %q references unknown dns provider %q", zone.Domain, providerRef)
 		}
 		if !registry.Exists(provider.Type) {
-			return fmt.Errorf("zone %q dns provider %q uses unsupported type %q", zone.Name, providerRef, provider.Type)
+			return fmt.Errorf("domain %q dns provider %q uses unsupported type %q", zone.Domain, providerRef, provider.Type)
 		}
 		if zone.DDNS.IPv4 && !registry.SupportsRecordType(provider.Type, ddnsprovider.RecordTypeA) {
-			return fmt.Errorf("zone %q dns provider %q does not support IPv4 updates", zone.Name, providerRef)
+			return fmt.Errorf("domain %q dns provider %q does not support IPv4 updates", zone.Domain, providerRef)
 		}
 		if zone.DDNS.IPv6 && !registry.SupportsRecordType(provider.Type, ddnsprovider.RecordTypeAAAA) {
-			return fmt.Errorf("zone %q dns provider %q does not support IPv6 updates", zone.Name, providerRef)
+			return fmt.Errorf("domain %q dns provider %q does not support IPv6 updates", zone.Domain, providerRef)
 		}
 	}
 	if zone.Certificate.Enabled {
@@ -1521,13 +1437,13 @@ func (s *Server) validateZone(store ZoneStore, zone core.ManagedZone, existingNa
 		}
 		provider, ok := providersByRef[zone.Certificate.DNSProvider]
 		if !ok {
-			return fmt.Errorf("zone %q references unknown dns provider %q for certificate", zone.Name, zone.Certificate.DNSProvider)
+			return fmt.Errorf("domain %q references unknown dns provider %q for certificate", zone.Domain, zone.Certificate.DNSProvider)
 		}
 		if !registry.Exists(provider.Type) {
-			return fmt.Errorf("zone %q certificate dns provider %q uses unsupported type %q", zone.Name, zone.Certificate.DNSProvider, provider.Type)
+			return fmt.Errorf("domain %q certificate dns provider %q uses unsupported type %q", zone.Domain, zone.Certificate.DNSProvider, provider.Type)
 		}
 		if err := registry.ValidateChallenge(provider.Type, provider.Options); err != nil {
-			return fmt.Errorf("zone %q certificate dns provider %q: %w", zone.Name, zone.Certificate.DNSProvider, err)
+			return fmt.Errorf("domain %q certificate dns provider %q: %w", zone.Domain, zone.Certificate.DNSProvider, err)
 		}
 		availableTargets := make(map[string]struct{}, len(store.ListDeployTargets()))
 		for _, target := range store.ListDeployTargets() {
@@ -1536,7 +1452,7 @@ func (s *Server) validateZone(store ZoneStore, zone core.ManagedZone, existingNa
 		for _, plan := range plans {
 			for _, targetName := range plan.DeployTargets {
 				if _, ok := availableTargets[targetName]; !ok {
-					return fmt.Errorf("zone %q certificate bundle %q references unknown deploy target %q", zone.Name, plan.Name, targetName)
+					return fmt.Errorf("domain %q certificate bundle %q references unknown deploy target %q", zone.Domain, plan.Name, targetName)
 				}
 			}
 		}
@@ -1602,7 +1518,14 @@ func decodeCustomApp(body io.ReadCloser) (core.CustomApp, error) {
 	}
 	app.Name = strings.TrimSpace(app.Name)
 	app.Icon = strings.TrimSpace(app.Icon)
+	app.Domain = strings.TrimSpace(app.Domain)
 	app.Zone = strings.TrimSpace(app.Zone)
+	if app.Domain == "" {
+		app.Domain = app.Zone
+	}
+	if app.Zone == "" {
+		app.Zone = app.Domain
+	}
 	app.Subdomain = strings.TrimSpace(app.Subdomain)
 	app.ExitNode = strings.TrimSpace(app.ExitNode)
 	app.TargetURL = strings.TrimSpace(app.TargetURL)
@@ -1681,6 +1604,9 @@ func decodeZone(body io.ReadCloser) (core.ManagedZone, error) {
 	}
 	zone.Name = strings.TrimSpace(zone.Name)
 	zone.Domain = strings.TrimSpace(zone.Domain)
+	if zone.Name == "" {
+		zone.Name = zone.Domain
+	}
 	zone.DDNS.ProviderRefs = compactStrings(zone.DDNS.ProviderRefs)
 	zone.Certificate.Email = strings.TrimSpace(zone.Certificate.Email)
 	zone.Certificate.DNSProvider = strings.TrimSpace(zone.Certificate.DNSProvider)
@@ -1689,15 +1615,15 @@ func decodeZone(body io.ReadCloser) (core.ManagedZone, error) {
 	return zone, nil
 }
 
-func getZoneByPath(store ZoneStore, w http.ResponseWriter, r *http.Request) (core.ManagedZone, bool) {
+func getZoneByPath(store DomainStore, w http.ResponseWriter, r *http.Request) (core.ManagedZone, bool) {
 	name := strings.TrimSpace(r.PathValue("name"))
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "zone name is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "error": "domain is required"})
 		return core.ManagedZone{}, false
 	}
-	zone, exists := store.GetZone(name)
+	zone, exists := store.GetDomain(name)
 	if !exists {
-		writeJSON(w, http.StatusNotFound, map[string]string{"status": "error", "error": fmt.Sprintf("zone %q not found", name)})
+		writeJSON(w, http.StatusNotFound, map[string]string{"status": "error", "error": fmt.Sprintf("domain %q not found", name)})
 		return core.ManagedZone{}, false
 	}
 	return zone, true
@@ -1705,7 +1631,7 @@ func getZoneByPath(store ZoneStore, w http.ResponseWriter, r *http.Request) (cor
 
 func findConfigZone(cfg *platformconfig.Config, name string) (core.ManagedZone, int, bool) {
 	for index, zone := range cfg.Zones {
-		if zone.Name == name {
+		if zone.Domain == name || zone.Name == name {
 			return zone, index, true
 		}
 	}
@@ -1755,4 +1681,13 @@ func compactStrings(values []string) []string {
 		}
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

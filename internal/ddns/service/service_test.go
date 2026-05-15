@@ -34,6 +34,31 @@ func (u *countingUpdater) Upsert(ctx context.Context, record ddnsprovider.Record
 	return nil
 }
 
+type capturingUpdater struct {
+	records []ddnsprovider.Record
+	err     error
+}
+
+func (u *capturingUpdater) Name() string { return "cloudflare" }
+
+func (u *capturingUpdater) Upsert(ctx context.Context, record ddnsprovider.Record) error {
+	_ = ctx
+	u.records = append(u.records, record)
+	return u.err
+}
+
+type stubAuthZoneResolver struct {
+	zone string
+	err  error
+	fqdn string
+}
+
+func (r *stubAuthZoneResolver) ResolveAuthZone(ctx context.Context, fqdn string) (string, error) {
+	_ = ctx
+	r.fqdn = fqdn
+	return r.zone, r.err
+}
+
 type memoryStateStore struct{ states map[string]core.DDNSSyncState }
 
 func (s *memoryStateStore) GetDDNSSyncState(zone, provider, host, recordType string) (core.DDNSSyncState, bool) {
@@ -66,6 +91,7 @@ func TestSyncZoneStoresNoopForUnchangedRecord(t *testing.T) {
 	store := &memoryStateStore{}
 	detector := &stubDetector{snapshot: ipdetect.Snapshot{IPv4: "1.2.3.4"}}
 	service := New(detector)
+	service.AuthZones = &stubAuthZoneResolver{zone: "home.example.com"}
 	service.StateStore = store
 	service.Register("cloudflare-home", updater)
 	zone := core.ManagedZone{
@@ -100,9 +126,15 @@ func TestSyncZoneStoresNoopForUnchangedRecord(t *testing.T) {
 	if updater.calls != 1 {
 		t.Fatalf("expected no extra updater call, got %d", updater.calls)
 	}
-	stored, ok := store.GetDDNSSyncState("home", "cloudflare-home", "home.example.com", "A")
+	stored, ok := store.GetDDNSSyncState("home.example.com", "cloudflare-home", "home.example.com", "A")
 	if !ok || stored.Status != "noop" {
 		t.Fatalf("unexpected stored state: %+v ok=%v", stored, ok)
+	}
+	if stored.Domain != "home.example.com" {
+		t.Fatalf("expected stored domain semantics, got %+v", stored)
+	}
+	if stored.Zone != "home.example.com" {
+		t.Fatalf("expected stored auth zone semantics, got %+v", stored)
 	}
 	if !detector.request.IPv4 || detector.request.IPv6 {
 		t.Fatalf("unexpected detector request: %+v", detector.request)
@@ -117,6 +149,7 @@ func TestSyncZoneReturnsPartialDetectionError(t *testing.T) {
 		snapshot: ipdetect.Snapshot{IPv4: "1.2.3.4"},
 		err:      errors.New("detect IPv6: network unreachable"),
 	})
+	service.AuthZones = &stubAuthZoneResolver{zone: "home.example.com"}
 	service.Register("cloudflare-home", updater)
 	zone := core.ManagedZone{
 		Name:   "home",
@@ -147,6 +180,7 @@ func TestSyncZoneReturnsStateStoreError(t *testing.T) {
 
 	updater := &countingUpdater{}
 	service := New(&stubDetector{snapshot: ipdetect.Snapshot{IPv4: "1.2.3.4"}})
+	service.AuthZones = &stubAuthZoneResolver{zone: "home.example.com"}
 	service.StateStore = failingStateStore{}
 	service.Register("cloudflare-home", updater)
 	zone := core.ManagedZone{
@@ -169,5 +203,72 @@ func TestSyncZoneReturnsStateStoreError(t *testing.T) {
 	}
 	if updater.calls != 1 {
 		t.Fatalf("expected 1 updater call, got %d", updater.calls)
+	}
+}
+
+func TestSyncZoneResolvesAuthZoneForManagedSubdomain(t *testing.T) {
+	t.Parallel()
+
+	updater := &capturingUpdater{}
+	resolver := &stubAuthZoneResolver{zone: "example.com"}
+	service := New(&stubDetector{snapshot: ipdetect.Snapshot{IPv4: "1.2.3.4"}})
+	service.AuthZones = resolver
+	service.Register("cloudflare-home", updater)
+
+	states, err := service.SyncZone(context.Background(), core.ManagedZone{
+		Name:   "sub",
+		Domain: "sub.example.com",
+		DDNS:   core.DDNSZoneConfig{Enabled: true, ProviderRefs: []string{"cloudflare-home"}, IPv4: true, TTL: 300},
+	})
+	if err != nil {
+		t.Fatalf("SyncZone() error = %v", err)
+	}
+	if len(updater.records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(updater.records))
+	}
+	if updater.records[0].Zone != "example.com" || updater.records[0].Name != "sub.example.com" {
+		t.Fatalf("unexpected record: %+v", updater.records[0])
+	}
+	if resolver.fqdn != "sub.example.com" {
+		t.Fatalf("unexpected resolver fqdn: %q", resolver.fqdn)
+	}
+	if len(states) != 1 || states[0].Zone != "example.com" || states[0].Status != "success" {
+		t.Fatalf("unexpected states: %+v", states)
+	}
+}
+
+func TestSyncRecordRejectsTargetOutsideManagedDomain(t *testing.T) {
+	t.Parallel()
+
+	service := New(nil)
+	service.AuthZones = &stubAuthZoneResolver{zone: "example.com"}
+	_, err := service.syncRecord(context.Background(), "cloudflare-home", &capturingUpdater{}, core.ManagedZone{Domain: "sub.example.com", DDNS: core.DDNSZoneConfig{TTL: 300}}, "other.example.com", ddnsprovider.RecordTypeA, "1.2.3.4")
+	if !errors.Is(err, ddnsprovider.ErrTargetOutsideManagedDomain) {
+		t.Fatalf("expected ErrTargetOutsideManagedDomain, got %v", err)
+	}
+}
+
+func TestSyncRecordReturnsZoneResolutionFailed(t *testing.T) {
+	t.Parallel()
+
+	service := New(nil)
+	service.AuthZones = &stubAuthZoneResolver{err: errors.New("lookup failed")}
+	_, err := service.syncRecord(context.Background(), "cloudflare-home", &capturingUpdater{}, core.ManagedZone{Domain: "sub.example.com", DDNS: core.DDNSZoneConfig{TTL: 300}}, "sub.example.com", ddnsprovider.RecordTypeA, "1.2.3.4")
+	if !errors.Is(err, ddnsprovider.ErrDNSZoneResolutionFailed) {
+		t.Fatalf("expected ErrDNSZoneResolutionFailed, got %v", err)
+	}
+}
+
+func TestSyncRecordReturnsZoneAccessDenied(t *testing.T) {
+	t.Parallel()
+
+	service := New(nil)
+	service.AuthZones = &stubAuthZoneResolver{zone: "example.com"}
+	_, err := service.syncRecord(context.Background(), "cloudflare-home", &capturingUpdater{err: errors.New("forbidden")}, core.ManagedZone{Domain: "sub.example.com", DDNS: core.DDNSZoneConfig{TTL: 300}}, "sub.example.com", ddnsprovider.RecordTypeA, "1.2.3.4")
+	if !errors.Is(err, ddnsprovider.ErrDNSZoneAccessDenied) {
+		t.Fatalf("expected ErrDNSZoneAccessDenied, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "example.com") {
+		t.Fatalf("expected authZone in error, got %v", err)
 	}
 }

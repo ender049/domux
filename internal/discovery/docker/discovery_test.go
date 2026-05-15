@@ -16,7 +16,7 @@ func TestParseLabelsWithCustomPrefix(t *testing.T) {
 	t.Parallel()
 
 	intent, err := ParseLabels(map[string]string{
-		"edge.zone":      "home",
+		"edge.domain":    "home.example.com",
 		"edge.subdomain": "qb",
 		"edge.port":      "8080",
 		"edge.network":   "proxy",
@@ -24,8 +24,29 @@ func TestParseLabelsWithCustomPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseLabels() error = %v", err)
 	}
-	if !intent.Managed || intent.Zone != "home" || intent.Subdomain != "qb" || intent.Port != 8080 || intent.Network != "proxy" {
+	if !intent.Managed || intent.Domain != "home.example.com" || intent.Subdomain != "qb" || intent.Port != 8080 || intent.Network != "proxy" {
 		t.Fatalf("unexpected intent: %+v", intent)
+	}
+}
+
+func TestParseLabelsKeepsLegacyZoneAsCompatibilityInput(t *testing.T) {
+	t.Parallel()
+
+	intent, err := ParseLabels(map[string]string{"domux.zone": "home.example.com"}, DefaultLabelPrefix)
+	if err != nil {
+		t.Fatalf("ParseLabels() error = %v", err)
+	}
+	if intent.Domain != "home.example.com" {
+		t.Fatalf("unexpected intent: %+v", intent)
+	}
+}
+
+func TestParseLabelsRejectsConflictingDomainAndZone(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseLabels(map[string]string{"domux.domain": "home.example.com", "domux.zone": "lab.example.com"}, DefaultLabelPrefix)
+	if err == nil {
+		t.Fatal("expected conflicting label error")
 	}
 }
 
@@ -88,7 +109,7 @@ func TestDiscoverRoutesFromSnapshots(t *testing.T) {
 	t.Parallel()
 
 	source := core.RuntimeSource{Network: "edge"}
-	zones := []core.ManagedZone{{Name: "home", Domain: "home.example.com"}}
+	zones := []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}}
 	snapshots := []core.ContainerSnapshot{{
 		ID:           "abc123",
 		Name:         "qbittorrent",
@@ -123,7 +144,7 @@ func TestDiscoverRoutesFromSnapshotsWithoutExplicitEnable(t *testing.T) {
 	t.Parallel()
 
 	source := core.RuntimeSource{Network: "edge"}
-	zones := []core.ManagedZone{{Name: "home", Domain: "home.example.com"}}
+	zones := []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}}
 	snapshots := []core.ContainerSnapshot{{
 		ID:           "abc123",
 		Name:         "qbittorrent",
@@ -148,7 +169,7 @@ func TestDiscoverRoutesFromSnapshotsUsesDefaultZone(t *testing.T) {
 	t.Parallel()
 
 	source := core.RuntimeSource{Network: "edge"}
-	zones := []core.ManagedZone{{Name: "home", Domain: "home.example.com", Default: true}, {Name: "lab", Domain: "lab.example.com"}}
+	zones := []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com", Default: true}, {Name: "lab.example.com", Domain: "lab.example.com"}}
 	snapshots := []core.ContainerSnapshot{{
 		ID:           "abc123",
 		Name:         "qbittorrent",
@@ -163,7 +184,31 @@ func TestDiscoverRoutesFromSnapshotsUsesDefaultZone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoutesFromSnapshots() error = %v", err)
 	}
-	if len(routes) != 1 || routes[0].Zone != "home" || routes[0].Host != "qbittorrent.home.example.com" {
+	if len(routes) != 1 || routes[0].Domain != "home.example.com" || routes[0].Host != "qbittorrent.home.example.com" {
+		t.Fatalf("unexpected routes: %+v", routes)
+	}
+}
+
+func TestDiscoverRoutesFromSnapshotsMatchesByDomainWhenNameDiffers(t *testing.T) {
+	t.Parallel()
+
+	source := core.RuntimeSource{Network: "edge"}
+	zones := []core.ManagedZone{{Name: "Home", Domain: "home.example.com"}}
+	snapshots := []core.ContainerSnapshot{{
+		ID:           "abc123",
+		Name:         "qbittorrent",
+		Runtime:      core.ContainerRuntimeDocker,
+		Running:      true,
+		Labels:       map[string]string{"domux.domain": "home.example.com", "domux.port": "8080"},
+		Networks:     map[string]string{"edge": "172.21.0.10"},
+		ExposedPorts: []int{8080},
+	}}
+
+	routes, err := DiscoverRoutesFromSnapshots(source, zones, snapshots)
+	if err != nil {
+		t.Fatalf("DiscoverRoutesFromSnapshots() error = %v", err)
+	}
+	if len(routes) != 1 || routes[0].Domain != "home.example.com" || routes[0].Zone != "Home" {
 		t.Fatalf("unexpected routes: %+v", routes)
 	}
 }
@@ -171,7 +216,7 @@ func TestDiscoverRoutesFromSnapshotsUsesDefaultZone(t *testing.T) {
 func TestDiscoverRoutesFromSnapshotsRequiresDefaultZoneWhenMultipleZones(t *testing.T) {
 	t.Parallel()
 
-	routes, err := DiscoverRoutesFromSnapshots(core.RuntimeSource{Network: "edge"}, []core.ManagedZone{{Name: "home", Domain: "home.example.com"}, {Name: "lab", Domain: "lab.example.com"}}, []core.ContainerSnapshot{{
+	routes, err := DiscoverRoutesFromSnapshots(core.RuntimeSource{Network: "edge"}, []core.ManagedZone{{Name: "home.example.com", Domain: "home.example.com"}, {Name: "lab.example.com", Domain: "lab.example.com"}}, []core.ContainerSnapshot{{
 		ID:           "abc123",
 		Name:         "qbittorrent",
 		Runtime:      core.ContainerRuntimeDocker,

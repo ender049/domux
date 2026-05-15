@@ -2,21 +2,14 @@ server:
   api_addr: ":18080"
   http_addr: ":8080"
   https_addr: ":8443"
+  data_dir: ./data
+  runtime:
+    runtime: docker
+    endpoint: unix:///var/run/docker.sock
+    network: edge
   # auth:
   #   username: admin
   #   password: change-me
-
-data_dir: ./data
-
-public_ip:
-  # Override public IP detection endpoints when needed.
-  # ipv4_urls:
-  #   - https://api.ipify.org
-  #   - https://ipv4.icanhazip.com
-  # ipv6_urls:
-  #   - https://api64.ipify.org
-  #   - https://ipv6.icanhazip.com
-  # timeout: 10s
 
 # The server uses this file as the single configuration source.
 # You can edit it directly and restart the service, or use the API/dashboard
@@ -45,25 +38,6 @@ ddns_providers:
   #     api_key: your-spaceship-api-key
   #     api_secret: your-spaceship-api-secret
 
-apps:
-  - name: docs
-    icon: DOC
-    zone: home
-    subdomain: docs
-    # optional: proxy this custom app through a remote agent instead of the current server
-    # exit_node: edge-2
-    target_url: https://example.com
-
-runtimes:
-  - runtime: docker
-    endpoint: unix:///var/run/docker.sock
-    network: edge
-  # - runtime: podman
-  #   endpoint: unix:///run/user/1000/podman/podman.sock
-  #   # for rootless Podman, publish workload ports and let domux target
-  #   # the host-mapped port when direct container IP reachability is unavailable
-  #   network: edge
-
 agents:
   - name: edge-2
     addr: edge-2.internal:8890
@@ -84,9 +58,8 @@ deploy_targets:
     key_path: /etc/caddy/certs/home.example.com/privkey.pem
     reload_command: systemctl reload caddy
 
-zones:
-  - name: home
-    domain: home.example.com
+domains:
+  - domain: home.example.com
     wildcard: true
     ddns:
       enabled: true
@@ -108,3 +81,11 @@ zones:
       #   - name: app-only
       #     domains: [app.home.example.com]
       #     deploy_targets: [remote-edge-2]
+    entries:
+      manual:
+        - name: docs
+          icon: DOC
+          subdomain: docs
+          # optional: proxy this custom app through a remote agent instead of the current server
+          # exit_node: edge-2
+          target_url: https://example.com

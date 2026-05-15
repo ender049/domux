@@ -20,16 +20,19 @@ import (
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
 	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/challenge/dns01"
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 
 	certstore "domux/internal/certs/store"
 	"domux/internal/core"
+	ddnsprovider "domux/internal/ddns/provider"
+	"domux/internal/dns/authzone"
 )
 
 type IssueRequest struct {
 	BundleName    string
-	Zone          string
+	Domain        string
 	Domains       []string
 	Email         string
 	DNSProvider   string
@@ -41,6 +44,7 @@ type Manager struct {
 	DataDir   string
 	CADirURL  string
 	Providers DNSProviderFactory
+	AuthZones authzone.Resolver
 }
 
 type DNSProviderFactory interface {
@@ -54,7 +58,7 @@ type AccountUser struct {
 }
 
 func NewManager(dataDir string, providers DNSProviderFactory) Manager {
-	return Manager{DataDir: dataDir, Providers: providers}
+	return Manager{DataDir: dataDir, Providers: providers, AuthZones: authzone.NewNSResolver()}
 }
 
 func (u *AccountUser) GetEmail() string {
@@ -84,7 +88,7 @@ func (m Manager) BuildRequests(zone core.ManagedZone) ([]IssueRequest, error) {
 	for _, plan := range plans {
 		requests = append(requests, IssueRequest{
 			BundleName:    plan.Name,
-			Zone:          zone.Name,
+			Domain:        zone.Domain,
 			Domains:       append([]string(nil), plan.Domains...),
 			Email:         zone.Certificate.Email,
 			DNSProvider:   zone.Certificate.DNSProvider,
@@ -126,7 +130,8 @@ func ShouldRenew(bundle core.CertificateBundle, now time.Time, renewBefore time.
 func (m Manager) EnsureCertificate(ctx context.Context, req IssueRequest, providerCfg core.DDNSProviderConfig) (core.CertificateBundle, error) {
 	bundle := core.CertificateBundle{
 		Name:          req.BundleName,
-		Zone:          req.Zone,
+		Domain:        req.Domain,
+		Zone:          req.Domain,
 		Domains:       req.Domains,
 		DeployTargets: req.DeployTargets,
 		CertPath:      filepath.Join(m.DataDir, "certs", storageNameForBundle(req.BundleName), "fullchain.pem"),
@@ -156,11 +161,12 @@ func (m Manager) obtainAndSave(ctx context.Context, bundleName string, req Issue
 	if err != nil {
 		return core.CertificateBundle{}, err
 	}
-	saved, err := fs.Save(storageNameForBundle(bundleName), req.Zone, req.Domains, cert.Certificate, cert.PrivateKey, notAfter)
+	saved, err := fs.Save(storageNameForBundle(bundleName), req.Domain, req.Domains, cert.Certificate, cert.PrivateKey, notAfter)
 	if err != nil {
 		return core.CertificateBundle{}, err
 	}
 	saved.Name = bundleName
+	saved.Domain = req.Domain
 	saved.DeployTargets = append([]string(nil), req.DeployTargets...)
 	return saved, saved.Validate()
 }
@@ -186,7 +192,7 @@ func (m Manager) obtain(ctx context.Context, req IssueRequest, providerCfg core.
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Challenge.SetDNS01Provider(dnsProvider); err != nil {
+	if err := client.Challenge.SetDNS01Provider(m.wrapDNS01Provider(req.Domain, dnsProvider)); err != nil {
 		return nil, err
 	}
 	if user.Registration == nil {
@@ -204,6 +210,74 @@ func (m Manager) obtain(ctx context.Context, req IssueRequest, providerCfg core.
 	request := certificate.ObtainRequest{Domains: req.Domains, Bundle: true}
 	_ = ctx
 	return client.Certificate.Obtain(request)
+}
+
+func (m Manager) wrapDNS01Provider(managedDomain string, provider challenge.Provider) challenge.Provider {
+	resolver := m.AuthZones
+	if resolver == nil {
+		defaultResolver := authzone.NewNSResolver()
+		resolver = defaultResolver
+	}
+	wrapped := managedDNS01Provider{managedDomain: managedDomain, resolver: resolver, provider: provider}
+	if timeoutProvider, ok := provider.(challenge.ProviderTimeout); ok {
+		return managedDNS01TimeoutProvider{managedDNS01Provider: wrapped, timeoutProvider: timeoutProvider}
+	}
+	return wrapped
+}
+
+type managedDNS01Provider struct {
+	managedDomain string
+	resolver      authzone.Resolver
+	provider      challenge.Provider
+}
+
+func (p managedDNS01Provider) Present(domain, token, keyAuth string) error {
+	authZone, err := p.preflight(context.Background(), domain, keyAuth)
+	if err != nil {
+		return err
+	}
+	err = p.provider.Present(domain, token, keyAuth)
+	if ddnsprovider.IsAccessDenied(err) {
+		return ddnsprovider.WrapZoneAccessDenied(authZone, err)
+	}
+	return err
+}
+
+func (p managedDNS01Provider) CleanUp(domain, token, keyAuth string) error {
+	authZone, resolveErr := p.resolveAuthZone(context.Background(), domain, keyAuth)
+	if resolveErr != nil {
+		return resolveErr
+	}
+	err := p.provider.CleanUp(domain, token, keyAuth)
+	if ddnsprovider.IsAccessDenied(err) {
+		return ddnsprovider.WrapZoneAccessDenied(authZone, err)
+	}
+	return err
+}
+
+func (p managedDNS01Provider) preflight(ctx context.Context, domain, keyAuth string) (string, error) {
+	return p.resolveAuthZone(ctx, domain, keyAuth)
+}
+
+func (p managedDNS01Provider) resolveAuthZone(ctx context.Context, domain, keyAuth string) (string, error) {
+	challengeFQDN := strings.TrimSuffix(dns01.GetChallengeInfo(domain, keyAuth).EffectiveFQDN, ".")
+	if !core.DomainWithinManagedDomain(p.managedDomain, challengeFQDN) {
+		return "", ddnsprovider.WrapTargetOutsideManagedDomain(p.managedDomain, challengeFQDN)
+	}
+	authZone, err := p.resolver.ResolveAuthZone(ctx, challengeFQDN)
+	if err != nil {
+		return "", ddnsprovider.WrapZoneResolutionFailed(challengeFQDN, err)
+	}
+	return authZone, nil
+}
+
+type managedDNS01TimeoutProvider struct {
+	managedDNS01Provider
+	timeoutProvider challenge.ProviderTimeout
+}
+
+func (p managedDNS01TimeoutProvider) Timeout() (time.Duration, time.Duration) {
+	return p.timeoutProvider.Timeout()
 }
 
 func (m Manager) loadOrCreateUser(email string) (*AccountUser, error) {
