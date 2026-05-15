@@ -38,7 +38,7 @@
 - 用容器方式运行 `domux`
 - 挂载 `/var/run/docker.sock`
 - 在 `config.yaml` 中使用 `runtime: docker` 和 `endpoint: unix:///var/run/docker.sock`
-- 默认先使用高位端口映射，例如 `18080/8080/8443`
+- 示例 Compose 默认映射 `18080/80/443`（分别对应 API / HTTP / HTTPS）
 
 在这种部署方式下，如果 `domux` 与被发现工作负载之间的 Docker bridge 网络地址可达，通常可以直接通过容器网络地址访问上游。
 
@@ -50,7 +50,7 @@
 - 挂载用户 Podman socket，例如 `/run/user/<uid>/podman/podman.sock:/run/podman/podman.sock`
 - 在 `config.yaml` 中使用 `runtime: podman` 和 `endpoint: unix:///run/podman/podman.sock`
 - 确保 `domux` 容器内可以访问 `host.containers.internal`，或等效的宿主机别名
-- 默认使用高位端口映射，例如 `18080/8080/8443`
+- 如果宿主机允许绑定低端口，可使用 `18080/80/443`；否则再改成高位端口映射
 
 在 rootless Podman 场景下，如果工作负载的 bridge IP 不能被 `domux` 直接访问，应为工作负载发布端口；`domux` 会通过 `host.containers.internal:<publishedPort>` 一类的宿主机可达地址访问上游。
 
@@ -142,7 +142,7 @@ go run ./cmd/domux -config ./config.yaml
 http://127.0.0.1:18080/
 ```
 
-如果你把 `domux` 运行在 rootless Podman 容器里，推荐先映射高位端口，例如宿主机 `8080->容器 8080`、`8443->容器 8443`。本机默认 `net.ipv4.ip_unprivileged_port_start=1024` 时，rootless Podman 不能直接绑定宿主机 `80/443`；只有在你额外完成宿主机侧低端口配置后，才适合暴露 `80/443`。
+如果你把 `domux` 运行在 rootless Podman 容器里，默认可能不能直接绑定宿主机 `80/443`。这时请把 Compose 里的端口映射改成高位端口，例如宿主机 `8080->容器 8080`、`8443->容器 8443`；只有在你额外完成宿主机侧低端口配置后，才适合继续暴露 `80/443`。
 
 ### 4. 按需接入远程 agent
 

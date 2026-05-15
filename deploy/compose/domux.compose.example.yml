@@ -1,16 +1,12 @@
 services:
   domux:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      target: domux
-    image: localhost/domux:local
+    image: ghcr.io/ender049/domux:latest
     restart: unless-stopped
     command: ["-config", "/etc/domux/config.yaml"]
     ports:
       - "18080:18080"
-      - "8080:8080"
-      - "8443:8443"
+      - "80:8080"
+      - "443:8443"
     volumes:
       - ../config/domux.config.yaml:/etc/domux/config.yaml
       - domux-data:/var/lib/domux
@@ -25,7 +21,7 @@ services:
     #   - domux-data:/var/lib/domux
     #   - /run/user/1000/podman/podman.sock:/run/podman/podman.sock
     # Rootless Podman commonly needs extra host-side configuration before using host 80/443.
-    # Use high host ports like 8080/8443 by default.
+    # If low ports are unavailable on your host, change these mappings to high ports like 8080:8080 / 8443:8443.
 
 volumes:
   domux-data:

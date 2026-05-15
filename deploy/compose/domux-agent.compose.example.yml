@@ -1,10 +1,6 @@
 services:
   domux-agent:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      target: domux-agent
-    image: localhost/domux-agent:local
+    image: ghcr.io/ender049/domux-agent:latest
     restart: unless-stopped
     command:
       - -name
